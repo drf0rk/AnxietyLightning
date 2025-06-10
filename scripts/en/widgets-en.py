@@ -143,4 +143,22 @@ change_webui_widget.observe(on_webui_change, names='value')
 save_button.on_click(on_save_click)
 download_manager_widget.observe(on_dm_toggle, names='value') # <-- FIX: Connect downloader checkbox to callback
 
-webui_box = factory.create_vbox([change_webui_widget, commandline_arguments_widget, factory.create_hbox([latest_webui_widget, latest_extensions_widget])], 'box
+webui_box = factory.create_vbox([change_webui_widget, commandline_arguments_widget, factory.create_hbox([latest_webui_widget, latest_extensions_widget])], 'box_webui')
+settings_box = factory.create_vbox([factory.create_html('Settings', 'header'), factory.create_hbox([XL_models_widget, inpainting_model_widget])], 'box_settings')
+top_container = factory.create_hbox([webui_box, settings_box], 'container_webui')
+models_container = factory.create_vbox([model_widget, vae_widget, lora_widget, embedding_widget, controlnet_widget], 'container_models')
+download_box = factory.create_vbox([factory.create_html('Download Manager', 'header'), factory.create_hbox([download_manager_widget, empowerment_widget]), Model_url_widget, Vae_url_widget, LoRA_url_widget, Embedding_url_widget, Extensions_url_widget, ADetailer_url_widget], 'box_download')
+custom_files_box = factory.create_vbox([factory.create_html('Custom files', 'header'), custom_file_urls_widget], 'box_download')
+download_container = factory.create_hbox([download_box, custom_files_box], 'container_cdl')
+
+display(top_container, models_container, download_container, GDrive_button, save_button)
+
+load_settings()
+# Set initial visibility of downloader
+on_dm_toggle({'new': download_manager_widget.value})
+
+js_content = ""
+if widgets_js.exists():
+    with open(widgets_js, 'r', encoding='utf-8') as f:
+        js_content = f.read()
+display(HTML(f"<script>{js_content}</script>"))
