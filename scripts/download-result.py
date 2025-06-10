@@ -1,168 +1,111 @@
-# ~ download-result.py | by ANXETY ~
+# scripts/download-result.py
 
-from widget_factory import WidgetFactory    # WIDGETS
-import json_utils as js                     # JSON
-
-import ipywidgets as widgets
+import sys
 from pathlib import Path
 import json
-import time
-import re
-import os
 
+# Self-aware pathing: Find the project root by going up two parent directories
+# This makes the script independent of the current working directory
+# ANXETY_ROOT will be /content/ANXETY or /teamspace/studios/this_studio/ANXETY
+try:
+    ANXETY_ROOT = Path(__file__).resolve().parents[1]
+except NameError:
+    # Fallback for environments where __file__ is not defined (like some notebooks)
+    ANXETY_ROOT = Path.cwd()
 
-# Constants
-HOME = Path.home()
-SCR_PATH = Path(HOME / 'ANXETY')
-SETTINGS_PATH = SCR_PATH / 'settings.json'
+sys.path.append(str(ANXETY_ROOT))
 
-UI = js.read(SETTINGS_PATH, 'WEBUI.current')
+from modules.json_utils import JsonUtils
 
-CSS = SCR_PATH / 'CSS'
-widgets_css = CSS / 'download-result.css'
-
-
-## ================= loading settings V5 =================
+SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
+CSS_PATH = ANXETY_ROOT / 'CSS' / 'download-result.css'
+js = JsonUtils()
 
 def load_settings(path):
     """Load settings from a JSON file."""
     try:
-        return {
-            **js.read(path, 'ENVIRONMENT'),
-            **js.read(path, 'WIDGETS'),
-            **js.read(path, 'WEBUI')
-        }
-    except (json.JSONDecodeError, IOError) as e:
-        print(f"Error loading settings: {e}")
-        return {}
+        # Check if the file exists before attempting to read
+        if not Path(path).exists():
+            print(f"ERROR: Settings file not found at {path}")
+            return None
+        
+        env_data = js.read(path, 'ENVIRONMENT')
+        widgets_data = js.read(path, 'WIDGETS')
+
+        # Ensure that the reads were successful and returned dictionaries
+        if env_data is None or widgets_data is None:
+            print(f"ERROR: Failed to read required sections from {path}")
+            if env_data is None:
+                print("DEBUG: 'ENVIRONMENT' section is missing or empty.")
+            if widgets_data is None:
+                print("DEBUG: 'WIDGETS' section is missing or empty.")
+            return None
+
+        return {**env_data, **widgets_data}
+    except Exception as e:
+        print(f"An unexpected error occurred in load_settings: {e}")
+        return None
 
 # Load settings
 settings = load_settings(SETTINGS_PATH)
+if settings is None:
+    print("FATAL: Could not load settings. Halting execution.")
+    # Exit gracefully if settings can't be loaded.
+    exit()
+
 locals().update(settings)
 
-## ======================= WIDGETS =======================
+html_content = ""
+# Check if the dictionary with downloads exists and is not empty
+if downloads:
+    for model_type, models in downloads.items():
+        if models:
+            html_content += f'<div class="type-title">{model_type}</div>'
+            html_content += '<div class="cards-container">'
+            for model_name, model_data in models.items():
+                html_content += f"""
+                <div class="card">
+                    <img src="{model_data['image_url']}" alt="{model_name}">
+                    <div class="card-title">{model_name}</div>
+                </div>
+                """
+            html_content += '</div>'
 
-HR = widgets.HTML('<hr class="divider-line">')
-HEADER_DL = 'DOWNLOAD RESULTS'
-VERSION = 'v0.58'
+# Wrap the generated content in the main structure
+if html_content:
+    final_html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Download Result</title>
+        <link rel="stylesheet" href="{CSS_PATH}">
+    </head>
+    <body>
+        <div class="main-container">
+            {html_content}
+        </div>
+    </body>
+    </html>
+    """
+else:
+    final_html = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Download Result</title>
+        <link rel="stylesheet" href="{CSS_PATH}">
+    </head>
+    <body>
+        <div class="main-container">
+            <div class="type-title">No assets were selected for download.</div>
+        </div>
+    </body>
+    </html>
+    """
 
-factory = WidgetFactory()
-
-# Load CSS
-factory.load_css(widgets_css)
-
-# Define extensions to filter out
-EXCLUDED_EXTENSIONS = {'.txt', '.yaml', '.log', '.json'}
-
-## Functions
-def output_container_generator(header, items, is_grid=False):
-    """Create a container widget for output items."""
-    header_widget = factory.create_html(f'<div class="section-title">{header} ➤</div>')
-    content_widgets = [factory.create_html(f'<div class="output-item">{item}</div>') for item in items]
-
-    container_method = factory.create_hbox if is_grid else factory.create_vbox    # hbox -> grid
-    content_container = container_method(content_widgets).add_class('_horizontal' if is_grid else '')
-
-    return factory.create_vbox([header_widget, content_container]).add_class('output-section')
-
-def get_all_files_list(directory, extensions, excluded_dirs=[]):
-    """Get all files in the directory and its subdirectories, excluding specified directories."""
-    if not os.path.isdir(directory):
-        return []
-
-    files_list = []
-    for root, dirs, files in os.walk(directory, followlinks=True):
-        # Exclude specified directories
-        dirs[:] = [d for d in dirs if d not in excluded_dirs]
-
-        for file in files:
-            if file.endswith(extensions) and not file.endswith(tuple(EXCLUDED_EXTENSIONS)):
-                files_list.append(file)  # Store only the file name
-    return files_list
-
-def get_folders_list(directory):
-    """List folders in a directory, excluding hidden folders."""
-    if not os.path.isdir(directory):
-        return []
-    return [
-        folder for folder in os.listdir(directory)
-        if os.path.isdir(os.path.join(directory, folder)) and not folder.startswith('__')
-    ]
-
-def get_controlnets_list(directory, filter_pattern):
-    """List ControlNet files matching a specific pattern."""
-    if not os.path.isdir(directory):
-        return []
-    filter_name = re.compile(filter_pattern)
-    return [
-        filter_name.match(file).group(1) if filter_name.match(file) else file
-        for file in os.listdir(directory)
-        if not file.endswith(tuple(EXCLUDED_EXTENSIONS)) and '.' in file
-    ]
-
-## Widgets
-header_widget = factory.create_html(f'''
-<div><span class="header-main-title">{HEADER_DL}</span> <span style="color: grey; opacity: 0.25;">| {VERSION}</span></div>
-''')
-
-# Models
-models_list = get_all_files_list(model_dir, ('.safetensors', '.ckpt'))
-models_widget = output_container_generator('Models', models_list)
-# Vaes
-vaes_list = get_all_files_list(vae_dir, ('.safetensors',))
-vaes_widget = output_container_generator('VAEs', vaes_list)
-# Embeddings
-embed_filter = ['SD', 'XL']
-embeddings_list = get_all_files_list(embed_dir, ('.safetensors', '.pt'), embed_filter)
-embeddings_widget = output_container_generator('Embeddings', embeddings_list)
-# LoRAs
-loras_list = get_all_files_list(lora_dir, ('.safetensors',))
-loras_widget = output_container_generator('LoRAs', loras_list)
-# Extensions
-extensions_list = get_folders_list(extension_dir)
-extension_type = 'Nodes' if UI == 'ComfyUI' else 'Extensions'
-extensions_widget = output_container_generator(extension_type, extensions_list, is_grid=True)
-# ADetailers
-adetailers_list = get_all_files_list(adetailer_dir, ('.safetensors', '.pt'))
-adetailers_widget = output_container_generator('ADetailers', adetailers_list)
-# Clips
-clips_list = get_all_files_list(clip_dir, ('.safetensors',))
-clips_widget = output_container_generator('Clips', clips_list)
-# Unets
-unets_list = get_all_files_list(unet_dir, ('.safetensors',))
-unets_widget = output_container_generator('Unets', unets_list)
-# (Clip) Visions
-visions_list = get_all_files_list(vision_dir, ('.safetensors',))
-visions_widget = output_container_generator('Visions', visions_list)
-# (Text) Encoders
-encoders_list = get_all_files_list(encoder_dir, ('.safetensors',))
-encoders_widget = output_container_generator('Encoders', encoders_list)
-# Diffusions (Models)
-diffusions_list = get_all_files_list(diffusion_dir, ('.safetensors',))
-diffusions_widget = output_container_generator('Diffusions', diffusions_list)
-# ControlNet
-controlnets_list = get_controlnets_list(control_dir, r'^[^_]*_[^_]*_[^_]*_(.*)_fp16\.safetensors')
-controlnets_widget = output_container_generator('ControlNets', controlnets_list)
-
-## Sorting and Output
-widgets_dict = {
-    models_widget: models_list,
-    vaes_widget: vaes_list,
-    embeddings_widget: embeddings_list,
-    loras_widget: loras_list,
-    extensions_widget: extensions_list,
-    adetailers_widget: adetailers_list,
-    clips_widget: clips_list,
-    unets_widget: unets_list,
-    visions_widget: visions_list,
-    encoders_widget: encoders_list,
-    diffusions_widget: diffusions_list,
-    controlnets_widget: controlnets_list
-}
-
-outputs_widgets_list = [widget for widget, widget_list in widgets_dict.items() if widget_list]
-result_output_widget = factory.create_hbox(outputs_widgets_list).add_class('result-output-container')
-
-container_widget = factory.create_vbox([header_widget, HR, result_output_widget, HR],
-                                       layout={'width': '1080px'}).add_class('result-container')
-factory.display(container_widget)
+# Print the final HTML to be captured by the notebook
+print(final_html)
