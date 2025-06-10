@@ -1,10 +1,11 @@
-# ~ widgets.py | by ANXETY ~ (All-in-One Fix v2)
+# ~ widgets.py | by ANXETY ~ (All-in-One Fix v3)
 
-from IPython.display import display, HTML      # <--- FIX: IMPORT ADDED
+from IPython.display import display, HTML
 from widget_factory import WidgetFactory
 from webui_utils import update_current_webui
 import json_utils as js
 import ipywidgets as widgets
+from ipywidgets import Layout  # <--- FIX: Import Layout for visibility control
 from pathlib import Path
 import os
 import re
@@ -31,65 +32,52 @@ ENV_NAME = js.read(str(SETTINGS_PATH), 'ENVIRONMENT.env_name', 'local')
 # --- Helper Functions ---
 factory = WidgetFactory()
 
-def read_model_data(file_path, data_key_in_file, prefixes=['none']):
+def read_data_keys(file_path, data_key_in_file, prefixes=['none']):
     """Reads data from a file, extracts a dictionary, and returns a numbered list of its keys."""
     local_vars = {}
     if not file_path.exists():
-        print(f"Warning: Data file not found at {file_path}. Skipping.")
         return prefixes
     with open(file_path, 'r', encoding='utf-8') as f:
         try:
             exec(f.read(), {}, local_vars)
         except Exception as e:
-            print(f"Error executing data file {file_path}: {e}")
             return prefixes
-
     data_dict = local_vars.get(data_key_in_file, {})
-    if not isinstance(data_dict, dict):
-        # Handle nested LoRA data structure
-        if data_key_in_file == 'lora_data':
-             sd15_loras = list(data_dict.get('sd15_loras', {}).keys())
-             sdxl_loras = list(data_dict.get('sdxl_loras', {}).keys())
-             all_loras = sd15_loras + sdxl_loras
-             return prefixes + [f"{i+1}. {name}" for i, name in enumerate(all_loras)]
-        print(f"Warning: Key '{data_key_in_file}' in {file_path} is not a dictionary.")
-        return prefixes
-        
     return prefixes + [f"{i+1}. {name}" for i, name in enumerate(data_dict.keys())]
 
-def read_lora_data(file_path):
-    """Specifically reads the nested LoRA data and returns a combined list."""
-    local_vars = {}
+def read_lora_keys_by_type(file_path):
+    """Specifically reads the nested LoRA data and returns separated lists."""
+    local_vars, sd15_keys, sdxl_keys = {}, [], []
     if not file_path.exists():
-        return ['none']
+        return sd15_keys, sdxl_keys
     with open(file_path, 'r', encoding='utf-8') as f:
         exec(f.read(), {}, local_vars)
     lora_main_dict = local_vars.get('lora_data', {})
-    sd15_loras = list(lora_main_dict.get('sd15_loras', {}).keys())
-    sdxl_loras = list(lora_main_dict.get('sdxl_loras', {}).keys())
-    return ['none'] + [f"{i+1}. {name}" for i, name in enumerate(sd15_loras + sdxl_loras)]
-
+    sd15_keys = list(lora_main_dict.get('sd15_loras', {}).keys())
+    sdxl_keys = list(lora_main_dict.get('sdxl_loras', {}).keys())
+    return [f"{i+1}. {name}" for i, name in enumerate(sd15_keys)], \
+           [f"{i+1}. {name}" for i, name in enumerate(sdxl_keys)]
 
 # --- Widget Creation ---
 # Models, VAEs, ControlNets
-model_list = read_model_data(SCRIPTS / '_models-data.py', 'sd15_model_data')
-XL_model_list = read_model_data(SCRIPTS / '_xl-models-data.py', 'sdxl_models_data')
-vae_list = read_model_data(SCRIPTS / '_models-data.py', 'sd15_vae_data', ['none', 'ALL'])
-XL_vae_list = read_model_data(SCRIPTS / '_xl-models-data.py', 'sdxl_vae_data', ['none', 'ALL'])
-cnet_list = read_model_data(SCRIPTS / '_models-data.py', 'controlnet_list', ['none', 'ALL'])
-XL_cnet_list = read_model_data(SCRIPTS / '_xl-models-data.py', 'controlnet_list', ['none', 'ALL'])
-lora_list = read_lora_data(SCRIPTS / '_loras-data.py') # <-- FIX: Read LoRA data
+model_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_model_data')
+XL_model_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'sdxl_models_data')
+vae_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_vae_data', ['none', 'ALL'])
+XL_vae_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'sdxl_vae_data', ['none', 'ALL'])
+cnet_list = read_data_keys(SCRIPTS / '_models-data.py', 'controlnet_list', ['none', 'ALL'])
+XL_cnet_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'controlnet_list', ['none', 'ALL'])
+sd15_lora_list, sdxl_lora_list = read_lora_keys_by_type(SCRIPTS / '_loras-data.py') # <-- FIX: Get separated LoRA lists
 
 # Main Widgets
 XL_models_widget = factory.create_checkbox(description='XL', value=False, class_names='sdxl')
 model_widget = factory.create_dropdown(description='Models:', options=model_list)
 inpainting_model_widget = factory.create_checkbox(description='Inpainting', value=False, class_names='inpaint')
-vae_widget = factory.create_dropdown(description='VAE:', options=vae_list)
-lora_widget = factory.create_select_multiple(description='LoRA:', options=lora_list) # <-- FIX: Changed from textarea to select_multiple
+vae_widget = factory.create_select_multiple(description='VAE:', options=vae_list) # <-- FIX: Changed to SelectMultiple
+lora_widget = factory.create_select_multiple(description='LoRA:', options=sd15_lora_list)
 embedding_widget = factory.create_textarea(description='Embeddings:', placeholder='Enter Embedding URLs, one per line')
 controlnet_widget = factory.create_select_multiple(description='ControlNet:', options=cnet_list)
 
-# WebUI Widgets and other components...
+# WebUI Widgets and Download Manager...
 webui_selection = {'A1111': '', 'Forge': '', 'ComfyUI': ''}
 latest_webui_widget = factory.create_checkbox('Update WebUI', False)
 latest_extensions_widget = factory.create_checkbox('Update Extensions', False)
@@ -113,9 +101,14 @@ def on_xl_change(change):
     model_widget.options = XL_model_list if is_xl else model_list
     vae_widget.options = XL_vae_list if is_xl else vae_list
     controlnet_widget.options = XL_cnet_list if is_xl else cnet_list
+    lora_widget.options = sdxl_lora_list if is_xl else sd15_lora_list # <-- FIX: Added LoRA filtering
 
 def on_webui_change(change):
     commandline_arguments_widget.value = webui_selection.get(change.new, '')
+
+def on_dm_toggle(change): # <-- FIX: Added callback for downloader visibility
+    is_enabled = change.new
+    download_container.layout.display = '' if is_enabled else 'none'
 
 # --- Settings Save/Load ---
 SETTINGS_KEYS = [
@@ -148,20 +141,6 @@ factory.load_css(widgets_css)
 XL_models_widget.observe(on_xl_change, names='value')
 change_webui_widget.observe(on_webui_change, names='value')
 save_button.on_click(on_save_click)
+download_manager_widget.observe(on_dm_toggle, names='value') # <-- FIX: Connect downloader checkbox to callback
 
-webui_box = factory.create_vbox([change_webui_widget, commandline_arguments_widget, factory.create_hbox([latest_webui_widget, latest_extensions_widget])], 'box_webui')
-settings_box = factory.create_vbox([factory.create_html('Settings', 'header'), factory.create_hbox([XL_models_widget, inpainting_model_widget])], 'box_settings')
-top_container = factory.create_hbox([webui_box, settings_box], 'container_webui')
-models_container = factory.create_vbox([model_widget, vae_widget, lora_widget, embedding_widget, controlnet_widget], 'container_models')
-download_box = factory.create_vbox([factory.create_html('Download Manager', 'header'), factory.create_hbox([download_manager_widget, empowerment_widget]), Model_url_widget, Vae_url_widget, LoRA_url_widget, Embedding_url_widget, Extensions_url_widget, ADetailer_url_widget], 'box_download')
-custom_files_box = factory.create_vbox([factory.create_html('Custom files', 'header'), custom_file_urls_widget], 'box_download')
-download_container = factory.create_hbox([download_box, custom_files_box], 'container_cdl')
-
-display(top_container, models_container, download_container, GDrive_button, save_button)
-
-load_settings()
-js_content = ""
-if widgets_js.exists():
-    with open(widgets_js, 'r', encoding='utf-8') as f:
-        js_content = f.read()
-display(HTML(f"<script>{js_content}</script>"))
+webui_box = factory.create_vbox([change_webui_widget, commandline_arguments_widget, factory.create_hbox([latest_webui_widget, latest_extensions_widget])], 'box
