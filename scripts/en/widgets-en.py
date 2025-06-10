@@ -4,20 +4,34 @@ import os
 import sys
 from pathlib import Path
 from ipywidgets import VBox
-from IPython.display import display, HTML # Import display and HTML for direct use
+from IPython.display import display, HTML
 
-# Self-aware pathing to find the project root
-try:
-    ANXETY_ROOT = Path(__file__).resolve().parents[2]
-except NameError:
-    ANXETY_ROOT = Path.cwd()
+# --- START OF FINAL PATHING FIX ---
+# Robustly determine the project's root directory.
+# The debug output shows that cwd() is likely /content, and the project is in /content/ANXETY.
+cwd = Path.cwd()
+project_dir_name = 'ANXETY'
+
+if cwd.name == project_dir_name:
+    ANXETY_ROOT = cwd
+else:
+    ANXETY_ROOT = cwd / project_dir_name
+
+# Final check to ensure the project directory exists before proceeding.
+if not ANXETY_ROOT.is_dir():
+    raise FileNotFoundError(
+        f"FATAL: The project root directory '{str(ANXETY_ROOT)}' was not found. "
+        "This is the final check. Please ensure the repository is cloned correctly and has the name 'ANXETY'."
+    )
+# --- END OF FINAL PATHING FIX ---
 
 sys.path.append(str(ANXETY_ROOT))
 
 from modules.json_utils import save
 from modules.widget_factory import WidgetFactory
 
-# Define the path to the JS file
+# Define paths to CSS and JS files
+css_file_path = ANXETY_ROOT / 'CSS' / 'main-widgets.css'
 js_file_path = ANXETY_ROOT / 'JS' / 'main-widgets.js'
 
 # Path to the JSON file where the form data will be saved
@@ -42,8 +56,11 @@ data_scripts = [
 # Load data from scripts
 data = {}
 for script_path in data_scripts:
-    with open(script_path, 'r', encoding='utf-8') as f:
-        exec(f.read(), data)
+    if script_path.exists():
+        with open(script_path, 'r', encoding='utf-8') as f:
+            exec(f.read(), data)
+    else:
+        print(f"Warning: Data file not found at {script_path}")
 
 # 1. Create an instance of the factory
 factory = WidgetFactory()
@@ -113,18 +130,18 @@ ui_elements.append(factory.create_dropdown(
 # 4. Create a single VBox container to hold all UI elements for proper layout
 form_container = VBox(ui_elements)
 
-# 5. Display the container
+# 5. Load the CSS stylesheet to fix the visual layout
+factory.load_css(css_file_path)
+
+# 6. Display the container
 factory.display(form_container)
 
-# --- START OF FINAL FIX ---
-# 6. Load and display the JavaScript directly, bypassing the factory method.
+# 7. Load and display the JavaScript directly
 try:
     with open(js_file_path, 'r', encoding='utf-8') as f:
         js_code = f.read()
-        # Display the JS code inside a <script> tag
         display(HTML(f"<script>{js_code}</script>"))
 except FileNotFoundError:
     print(f"ERROR: JavaScript file not found at {js_file_path}")
 except Exception as e:
     print(f"An unexpected error occurred while loading JavaScript: {e}")
-# --- END OF FINAL FIX ---
