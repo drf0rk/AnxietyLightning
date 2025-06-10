@@ -3,7 +3,8 @@
 import os
 import sys
 from pathlib import Path
-from ipywidgets import VBox # Import VBox for layout
+from ipywidgets import VBox
+from IPython.display import display, HTML # Import display and HTML for direct use
 
 # Self-aware pathing to find the project root
 try:
@@ -16,14 +17,8 @@ sys.path.append(str(ANXETY_ROOT))
 from modules.json_utils import save
 from modules.widget_factory import WidgetFactory
 
-# Correctly read the JavaScript file content
+# Define the path to the JS file
 js_file_path = ANXETY_ROOT / 'JS' / 'main-widgets.js'
-try:
-    with open(js_file_path, 'r', encoding='utf-8') as f:
-        js_script = f.read()
-except FileNotFoundError:
-    print(f"ERROR: JavaScript file for widgets not found at {js_file_path}")
-    js_script = ""
 
 # Path to the JSON file where the form data will be saved
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
@@ -49,8 +44,6 @@ data = {}
 for script_path in data_scripts:
     with open(script_path, 'r', encoding='utf-8') as f:
         exec(f.read(), data)
-
-# --- START OF CORRECTED LOGIC ---
 
 # 1. Create an instance of the factory
 factory = WidgetFactory()
@@ -123,7 +116,15 @@ form_container = VBox(ui_elements)
 # 5. Display the container
 factory.display(form_container)
 
-# 6. Load the necessary JavaScript
-factory.load_js(js_script)
-
-# --- END OF CORRECTED LOGIC ---
+# --- START OF FINAL FIX ---
+# 6. Load and display the JavaScript directly, bypassing the factory method.
+try:
+    with open(js_file_path, 'r', encoding='utf-8') as f:
+        js_code = f.read()
+        # Display the JS code inside a <script> tag
+        display(HTML(f"<script>{js_code}</script>"))
+except FileNotFoundError:
+    print(f"ERROR: JavaScript file not found at {js_file_path}")
+except Exception as e:
+    print(f"An unexpected error occurred while loading JavaScript: {e}")
+# --- END OF FINAL FIX ---
