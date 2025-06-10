@@ -1,10 +1,11 @@
-# /content/ANXETY/scripts/en/downloading-en.py (Final Orchestrator Version)
+# /content/ANXETY/scripts/en/downloading-en.py (Final Orchestrator with Error Handling)
 
 import os
 import sys
 from pathlib import Path
 import subprocess
 import re
+from urllib.parse import urlparse
 
 # --- Self-aware pathing ---
 try:
@@ -66,8 +67,22 @@ def main():
     if not WEBUI_PATH.exists():
         print(f"🚀 Unpacking Stable Diffusion | WEBUI: {webui_name}...")
         installer_script = SCRIPTS_UIs / f"{WEBUI_DIR_MAPPING.get(webui_name, webui_name)}.py"
-        if installer_script.exists(): subprocess.run([sys.executable, str(installer_script)], check=True)
-        else: print(f"❌ Installer script not found: {installer_script}"); return
+        if installer_script.exists():
+            # --- THIS IS THE FIX ---
+            try:
+                subprocess.run([sys.executable, str(installer_script)], check=True, text=True)
+            except subprocess.CalledProcessError as e:
+                print("\n" + "="*80)
+                print("❌❌❌ WEBUI INSTALLER SCRIPT FAILED! ❌❌❌")
+                print(f"The script '{installer_script.name}' exited with a non-zero status.")
+                print("This is a critical error preventing the setup from continuing.")
+                print(f"Review the output from the script above for the specific error from 'git' or other tools.")
+                print("="*80 + "\n")
+                # We re-raise the exception to ensure the notebook cell stops execution.
+                raise e
+            # --- END OF FIX ---
+        else:
+            print(f"❌ Installer script not found: {installer_script}"); return
     else:
         print(f"🔧 WebUI found: {webui_name}")
 
@@ -100,12 +115,8 @@ def main():
                 
                 url_match = re.match(r"(.*?)(?:\[(.*?)\])?$", rest)
                 url = url_match.group(1)
-                filename = url_match.group(2) if url_match.group(2) else ""
+                filename = url_match.group(2) if url_match.group(2) else Path(urlparse(url).path).name
                 
-                # If filename is empty (e.g., from ControlNet), derive it from URL
-                if not filename:
-                    filename = Path(urlparse(url).path).name
-
                 dst_dir = PREFIX_PATH_MAP[prefix]
                 if not dst_dir: continue
                 
