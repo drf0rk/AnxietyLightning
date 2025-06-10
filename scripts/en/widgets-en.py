@@ -1,4 +1,22 @@
-# /content/ANXETY/scripts/en/widgets-en.py (Corrected and Finalized)
+# /content/ANXETY/scripts/en/widgets-en.py (Corrected with Self-Aware Pathing)
+
+import os
+import sys
+from pathlib import Path
+
+# --- Self-aware pathing to fix ModuleNotFoundError ---
+try:
+    # This assumes the script is in /.../ANXETY/scripts/en/
+    # The project root (ANXETY) is 3 levels up.
+    ANXETY_ROOT = Path(__file__).resolve().parents[2]
+except NameError:
+    # Fallback for environments where __file__ is not defined
+    ANXETY_ROOT = Path.cwd()
+
+# Add the project root to the Python path
+if str(ANXETY_ROOT) not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT))
+# --- End of fix ---
 
 from IPython.display import display, HTML
 from modules.widget_factory import WidgetFactory
@@ -6,18 +24,9 @@ from modules.webui_utils import update_current_webui
 import modules.json_utils as js
 import ipywidgets as widgets
 from ipywidgets import Layout
-from pathlib import Path
-import os
-import re
 
 # --- Constants and Platform-Aware Pathing ---
-cwd = Path.cwd()
-project_dir_name = 'ANXETY'
-ANXETY_ROOT = cwd / project_dir_name if cwd.name != project_dir_name else cwd
-
-if not ANXETY_ROOT.is_dir():
-    raise FileNotFoundError(f"FATAL: Could not find project root at '{ANXETY_ROOT}'")
-
+# ANXETY_ROOT is already defined above
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 SCRIPTS = ANXETY_ROOT / 'scripts'
 CSS = ANXETY_ROOT / 'CSS'

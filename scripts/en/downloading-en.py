@@ -1,20 +1,26 @@
-# /content/ANXETY/scripts/en/downloading-en.py (Corrected and Finalized)
+# /content/ANXETY/scripts/en/downloading-en.py (Corrected with Self-Aware Pathing)
 
 import os
 import sys
 from pathlib import Path
 import subprocess
 
-# --- Self-aware pathing to find the project root ---
+# --- Self-aware pathing to fix ModuleNotFoundError ---
 try:
+    # This assumes the script is in /.../ANXETY/scripts/en/
+    # The project root (ANXETY) is 3 levels up.
     ANXETY_ROOT = Path(__file__).resolve().parents[2]
 except NameError:
+    # Fallback for environments where __file__ is not defined
     ANXETY_ROOT = Path.cwd()
 
-sys.path.insert(0, str(ANXETY_ROOT))
-sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
+# Add the project root and modules directory to the Python path
+if str(ANXETY_ROOT) not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT))
+if str(ANXETY_ROOT / 'modules') not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
+# --- End of fix ---
 
-# --- Corrected Imports ---
 import modules.json_utils as js
 from modules.Manager import m_download
 
@@ -28,7 +34,6 @@ WEBUI_DIR_MAPPING = {
 }
 
 def get_webui_path():
-    """Reads the current WebUI path from settings."""
     try:
         webui_settings = js.read(SETTINGS_PATH, 'WEBUI', {})
         webui_path = webui_settings.get('webui_path')
@@ -39,42 +44,41 @@ def get_webui_path():
         return None, None
 
 def read_data_file(file_path, data_key):
-    """Reads a specific dictionary from a Python data file."""
     local_vars = {}
     if not file_path.exists(): return {}
     with open(file_path, 'r', encoding='utf-8') as f:
         exec(f.read(), {}, local_vars)
     return local_vars.get(data_key, {})
 
-def process_selections(selections, data_dict, prefix, dst_dir):
-    """Processes widget selections and returns a list of download commands."""
+def process_selections(selections, data_dict, prefix):
     commands = []
     if not isinstance(selections, (list, tuple)): return commands
 
-    all_models = list(data_dict.keys())
+    all_models_by_name = {name.split('. ', 1)[-1]: info for name, info in data_dict.items()}
+
     for selection in selections:
         if selection == 'none' or not selection: continue
         if selection == 'ALL':
             for model_name, model_info_list in data_dict.items():
                 for model_info in model_info_list:
+                    # Construct command: prefix:url[filename]
                     commands.append(f"{prefix}:{model_info['url']}[{model_info.get('name', '')}]")
             continue
 
         model_name = selection.split('. ', 1)[-1]
         if model_name in data_dict:
             for model_info in data_dict[model_name]:
-                commands.append(f"{prefix}:{model_info['url']}[{model_info.get('name', '')}]")
+                 commands.append(f"{prefix}:{model_info['url']}[{model_info.get('name', '')}]")
     return commands
 
 def main():
-    """Main execution function for the downloading script."""
     print(f"✅ Running download orchestrator: {__file__}")
 
     settings = js.read(SETTINGS_PATH, 'WIDGETS', {})
     webui_paths = js.read(SETTINGS_PATH, 'WEBUI', {})
 
     if not settings or not webui_paths:
-        print("❌ Critical settings missing. Cannot proceed with downloads.")
+        print("❌ Critical settings missing. Cannot proceed.")
         return
 
     WEBUI_PATH, webui_name = get_webui_path()
@@ -94,30 +98,31 @@ def main():
     else:
         print(f"🔧 WebUI found: {webui_name}")
 
+
     # 2. Process Asset Downloads
     print("📦 Processing asset download selections from settings...")
     is_xl = settings.get('XL_models', False)
     all_commands = []
 
-    models_py = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
-    loras_py = ANXETY_ROOT / 'scripts' / '_loras-data.py'
+    models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
+    loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
 
-    model_data = read_data_file(models_py, 'sdxl_models_data' if is_xl else 'sd15_model_data')
-    vae_data = read_data_file(models_py, 'sdxl_vae_data' if is_xl else 'sd15_vae_data')
-    lora_data = read_data_file(loras_py, 'lora_data').get('sdxl_loras' if is_xl else 'sd15_loras', {})
-    cnet_data = read_data_file(models_py, 'controlnet_list')
+    model_data = read_data_file(models_py_path, 'sdxl_models_data' if is_xl else 'sd15_model_data')
+    vae_data = read_data_file(models_py_path, 'sdxl_vae_data' if is_xl else 'sd15_vae_data')
+    lora_data = read_data_file(loras_py_path, 'lora_data').get('sdxl_loras' if is_xl else 'sd15_loras', {})
+    cnet_data = read_data_file(models_py_path, 'controlnet_list')
 
-    all_commands.extend(process_selections(settings.get('model', []), model_data, 'model', webui_paths.get('model_dir')))
-    all_commands.extend(process_selections(settings.get('vae', []), vae_data, 'vae', webui_paths.get('vae_dir')))
-    all_commands.extend(process_selections(settings.get('lora', []), lora_data, 'lora', webui_paths.get('lora_dir')))
-    all_commands.extend(process_selections(settings.get('controlnet', []), cnet_data, 'control', webui_paths.get('control_dir')))
+    all_commands.extend(process_selections(settings.get('model', []), model_data, 'model'))
+    all_commands.extend(process_selections(settings.get('vae', []), vae_data, 'vae'))
+    all_commands.extend(process_selections(settings.get('lora', []), lora_data, 'lora'))
+    all_commands.extend(process_selections(settings.get('controlnet', []), cnet_data, 'control'))
 
     if all_commands:
         download_line = ", ".join(all_commands)
-        print(f"▶️  Executing downloads...")
+        print(f"▶️  Executing downloads for {len(all_commands)} assets...")
         m_download(download_line, log=True, unzip=True)
     else:
-        print("⏩ No assets selected from dropdowns.")
+        print("⏩ No assets were selected from the GUI dropdowns.")
 
     print("🏁 Download processing complete!")
     if DOWNLOAD_RESULT_PY.exists():
