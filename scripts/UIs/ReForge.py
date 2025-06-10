@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/UIs/ReForge.py (Corrected and Robust Version)
+# /content/ANXETY/scripts/UIs/ReForge.py (Final Debug Version)
 
 import os
 import sys
@@ -36,7 +36,7 @@ def get_webui_install_path():
 def main():
     install_dir = get_webui_install_path()
     if not install_dir:
-        sys.exit(1) # Exit with an error code if the path is invalid
+        sys.exit(1)
 
     git_repo_url = 'https://github.com/huchenlei/stable-diffusion-webui-reforge.git'
 
@@ -44,17 +44,19 @@ def main():
         print(f'✅ Cloning ReForge repository into: {install_dir}')
         # Using check=True will raise an error if git clone fails
         try:
+            # --- THIS IS THE FIX ---
+            # Removed `capture_output=True` to allow errors to print to the notebook.
             subprocess.run(
                 ['git', 'clone', '-b', 'master', '--depth', '1', git_repo_url, str(install_dir)],
                 check=True,
-                capture_output=True, # Capture output to prevent flooding the notebook
                 text=True
             )
+            # --- END OF FIX ---
             print('✅ Unpacking ReForge Complete!')
         except subprocess.CalledProcessError as e:
             print("❌❌❌ GIT CLONE FAILED! ❌❌❌")
             print(f"The attempt to clone the ReForge WebUI failed. This is a critical error.")
-            print(f"Error details (stderr):\n{e.stderr}")
+            # The error from git will have been printed to stdout/stderr already.
             sys.exit(1) # Halt execution
     else:
         print(f'✨ ReForge directory already exists at {install_dir}. Skipping download.')
