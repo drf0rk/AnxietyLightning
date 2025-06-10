@@ -1,56 +1,63 @@
-# scripts/UIs/ReForge.py
+# /content/ANXETY/scripts/UIs/ReForge.py (Corrected and Robust Version)
 
 import os
 import sys
 from pathlib import Path
 import subprocess
 
-# Self-aware pathing to find the project root
+# --- Self-aware pathing to find the project root ---
 try:
-    # From .../scripts/UIs/ the root is 2 levels up
     ANXETY_ROOT = Path(__file__).resolve().parents[2]
 except NameError:
-    ANXETY_ROOT = Path.cwd().parent 
+    ANXETY_ROOT = Path.cwd()
 
-sys.path.append(str(ANXETY_ROOT))
+# Add the modules directory to the Python path
+sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
+# --- End of fix ---
 
-# --- CORRECTED IMPORT ---
-from modules.json_utils import read
-# --- END CORRECTION ---
+import json_utils as js
 
-SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
-
-def get_root_dir():
-    """Reads the root directory from the ENVIRONMENT section of settings.json."""
-    try:
-        if not SETTINGS_PATH.exists():
-            print(f"Error: settings.json not found at {SETTINGS_PATH}")
-            return None
-        
-        # --- CORRECTED READ CALL ---
-        env_settings = read(SETTINGS_PATH, 'ENVIRONMENT')
-        # --- END CORRECTION ---
-        
-        root_dir = env_settings.get('root_dir')
-        if not root_dir:
-            print("Error: 'root_dir' not found in settings.json.")
-            return None
-        return root_dir
-    except Exception as e:
-        print(f"Error reading root directory from settings.json: {e}")
+def get_webui_install_path():
+    """Reads the definitive webui_path from settings.json."""
+    settings_path = ANXETY_ROOT / 'settings.json'
+    if not settings_path.exists():
+        print("❌ FATAL: settings.json not found. Cannot determine installation path.")
         return None
+    
+    webui_settings = js.read(settings_path, 'WEBUI', {})
+    install_path = webui_settings.get('webui_path')
+    
+    if not install_path:
+        print("❌ FATAL: 'webui_path' not defined in settings.json.")
+        return None
+        
+    return Path(install_path)
 
-root_dir = get_root_dir()
+def main():
+    install_dir = get_webui_install_path()
+    if not install_dir:
+        sys.exit(1) # Exit with an error code if the path is invalid
 
-if root_dir:
-    install_dir = os.path.join(root_dir, 'stable-diffusion-webui-reforge')
     git_repo_url = 'https://github.com/huchenlei/stable-diffusion-webui-reforge.git'
 
-    if not os.path.exists(install_dir):
-        print(f'🚀 Unpacking ReForge...')
-        subprocess.run(['git', 'clone', '-b', 'master', '--depth', '1', git_repo_url, install_dir], check=True)
-        print('✅ Unpacking ReForge Complete!')
+    if not install_dir.exists():
+        print(f'✅ Cloning ReForge repository into: {install_dir}')
+        # Using check=True will raise an error if git clone fails
+        try:
+            subprocess.run(
+                ['git', 'clone', '-b', 'master', '--depth', '1', git_repo_url, str(install_dir)],
+                check=True,
+                capture_output=True, # Capture output to prevent flooding the notebook
+                text=True
+            )
+            print('✅ Unpacking ReForge Complete!')
+        except subprocess.CalledProcessError as e:
+            print("❌❌❌ GIT CLONE FAILED! ❌❌❌")
+            print(f"The attempt to clone the ReForge WebUI failed. This is a critical error.")
+            print(f"Error details (stderr):\n{e.stderr}")
+            sys.exit(1) # Halt execution
     else:
-        print('✨ ReForge is already unpacked. Skipping download.')
-else:
-    print("❌ FATAL: Could not determine root directory. Halting ReForge installation.")
+        print(f'✨ ReForge directory already exists at {install_dir}. Skipping download.')
+
+if __name__ == '__main__':
+    main()

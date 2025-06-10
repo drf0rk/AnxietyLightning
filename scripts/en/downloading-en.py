@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (Corrected with Self-Aware Pathing)
+# /content/ANXETY/scripts/en/downloading-en.py (Corrected for TypeError)
 
 import os
 import sys
@@ -7,14 +7,10 @@ import subprocess
 
 # --- Self-aware pathing to fix ModuleNotFoundError ---
 try:
-    # This assumes the script is in /.../ANXETY/scripts/en/
-    # The project root (ANXETY) is 3 levels up.
     ANXETY_ROOT = Path(__file__).resolve().parents[2]
 except NameError:
-    # Fallback for environments where __file__ is not defined
     ANXETY_ROOT = Path.cwd()
 
-# Add the project root and modules directory to the Python path
 if str(ANXETY_ROOT) not in sys.path:
     sys.path.insert(0, str(ANXETY_ROOT))
 if str(ANXETY_ROOT / 'modules') not in sys.path:
@@ -51,24 +47,38 @@ def read_data_file(file_path, data_key):
     return local_vars.get(data_key, {})
 
 def process_selections(selections, data_dict, prefix):
+    """
+    Processes widget selections and returns a list of download commands.
+    This version correctly handles both single-dict and list-of-dicts data structures.
+    """
     commands = []
     if not isinstance(selections, (list, tuple)): return commands
 
-    all_models_by_name = {name.split('. ', 1)[-1]: info for name, info in data_dict.items()}
-
     for selection in selections:
         if selection == 'none' or not selection: continue
+        
+        # Handle 'ALL' selection
         if selection == 'ALL':
-            for model_name, model_info_list in data_dict.items():
+            for model_name, model_data_value in data_dict.items():
+                model_info_list = model_data_value if isinstance(model_data_value, list) else [model_data_value]
                 for model_info in model_info_list:
-                    # Construct command: prefix:url[filename]
                     commands.append(f"{prefix}:{model_info['url']}[{model_info.get('name', '')}]")
             continue
 
         model_name = selection.split('. ', 1)[-1]
         if model_name in data_dict:
-            for model_info in data_dict[model_name]:
-                 commands.append(f"{prefix}:{model_info['url']}[{model_info.get('name', '')}]")
+            model_data_value = data_dict[model_name]
+            
+            # --- THIS IS THE FIX ---
+            # Normalize the data structure to always be a list of dictionaries
+            model_info_list = model_data_value if isinstance(model_data_value, list) else [model_data_value]
+            # --- END OF FIX ---
+
+            for model_info in model_info_list:
+                # Ensure model_info is a dict before trying to access keys
+                if isinstance(model_info, dict):
+                    commands.append(f"{prefix}:{model_info['url']}[{model_info.get('name', '')}]")
+
     return commands
 
 def main():
@@ -98,7 +108,6 @@ def main():
     else:
         print(f"🔧 WebUI found: {webui_name}")
 
-
     # 2. Process Asset Downloads
     print("📦 Processing asset download selections from settings...")
     is_xl = settings.get('XL_models', False)
@@ -116,8 +125,9 @@ def main():
     all_commands.extend(process_selections(settings.get('vae', []), vae_data, 'vae'))
     all_commands.extend(process_selections(settings.get('lora', []), lora_data, 'lora'))
     all_commands.extend(process_selections(settings.get('controlnet', []), cnet_data, 'control'))
-
+    
     if all_commands:
+        # Use a comma and a space for cleaner joining, which Manager.py handles.
         download_line = ", ".join(all_commands)
         print(f"▶️  Executing downloads for {len(all_commands)} assets...")
         m_download(download_line, log=True, unzip=True)
