@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/UIs/A1111.py (Definitive Final Version)
+# /content/ANXETY/scripts/UIs/A1111.py (Definitive Version)
 
 import os
 import sys
@@ -10,13 +10,15 @@ try:
     ANXETY_ROOT = Path(__file__).resolve().parents[2]
 except NameError:
     ANXETY_ROOT = Path.cwd()
-sys.path.insert(0, str(ANXETY_ROOT))
-sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
+if str(ANXETY_ROOT) not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT))
+if str(ANXETY_ROOT / 'modules') not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
 # ---
 
 from Manager import m_download
 
-# Constants
+# --- Core Logic ---
 UI = 'A1111'
 HOME = Path.home()
 WEBUI_PATH = HOME / UI
@@ -29,6 +31,10 @@ def main():
         
         m_download(f'"{REPO_URL}" "{HOME}" "{zip_path.name}"', log=True)
         
+        if not zip_path.exists():
+            print(f"❌ DOWNLOAD FAILED: {zip_path.name} was not created.", file=sys.stderr)
+            sys.exit(1)
+
         print(f"✅ Unzipping {UI}...")
         try:
             subprocess.run(
@@ -41,7 +47,6 @@ def main():
         except subprocess.CalledProcessError as e:
             print(f"❌ UNZIP FAILED for {UI}:\n{e.stderr}", file=sys.stderr)
             sys.exit(1)
-            
     else:
         print(f"✨ {UI} directory already exists. Skipping installation.")
 

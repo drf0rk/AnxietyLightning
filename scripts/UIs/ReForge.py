@@ -1,23 +1,25 @@
-# /content/ANXETY/scripts/UIs/ReForge.py (Definitive Final Version)
+# /content/ANXETY/scripts/UIs/ReForge.py (Definitive Version)
 
 import os
 import sys
 from pathlib import Path
 import subprocess
 
-# --- Self-aware pathing ---
+# --- Self-aware pathing to find project root and modules ---
 try:
     ANXETY_ROOT = Path(__file__).resolve().parents[2]
 except NameError:
     ANXETY_ROOT = Path.cwd()
 if str(ANXETY_ROOT) not in sys.path:
     sys.path.insert(0, str(ANXETY_ROOT))
-sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
+if str(ANXETY_ROOT / 'modules') not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
 # ---
 
 from Manager import m_download
+import json_utils as js
 
-# Constants
+# --- Core Logic ---
 UI = 'ReForge'
 HOME = Path.home()
 WEBUI_PATH = HOME / UI
@@ -28,11 +30,14 @@ def main():
         print(f"✅ Downloading and unpacking {UI} from Hugging Face...")
         zip_path = HOME / f"{UI}.zip"
         
+        # Use the m_download function with the correct Hugging Face URL
         m_download(f'"{REPO_URL}" "{HOME}" "{zip_path.name}"', log=True)
         
+        if not zip_path.exists():
+            print(f"❌ DOWNLOAD FAILED: {zip_path.name} was not created.", file=sys.stderr)
+            sys.exit(1)
+
         print(f"✅ Unzipping {UI}...")
-        # --- THIS IS THE FIX ---
-        # Replacing ipySys with the standard subprocess library
         try:
             subprocess.run(
                 ['unzip', '-o', str(zip_path), '-d', str(WEBUI_PATH)],
@@ -44,8 +49,6 @@ def main():
         except subprocess.CalledProcessError as e:
             print(f"❌ UNZIP FAILED for {UI}:\n{e.stderr}", file=sys.stderr)
             sys.exit(1)
-        # --- END OF FIX ---
-            
     else:
         print(f"✨ {UI} directory already exists. Skipping installation.")
 
