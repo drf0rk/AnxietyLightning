@@ -1,4 +1,4 @@
-# ~ widgets.py | by ANXETY ~ (DEFINITIVE FINAL VERSION)
+# ~ widgets.py | by ANXETY ~ (DEFINITIVE FINAL VERSION v2)
 
 from IPython.display import display, HTML
 from widget_factory import WidgetFactory
@@ -110,16 +110,13 @@ def on_webui_change(change):
     commandline_arguments_widget.value = webui_selection.get(change.new, '')
 
 def on_empowerment_toggle(change):
-    custom_files_box.layout.display = '' if change.new else 'none'
+    custom_files_box.layout.display = 'flex' if change.new else 'none'
 
-def on_dm_toggle(change): # <--- START OF FINAL FIX
-    """Toggles visibility of the downloader using the layout property."""
+def on_dm_toggle(change): # <--- FINAL FIX IS HERE
+    """Toggles visibility of the downloader using the layout property correctly."""
     is_enabled = change.new
-    download_box.layout.display = '' if is_enabled else 'none'
-    if not is_enabled:
-        custom_files_box.layout.display = 'none'
-    else:
-        on_empowerment_toggle(MockChange(empowerment_widget.value)) #<--- END OF FINAL FIX
+    # Use 'flex' to make the HBox container reappear correctly
+    download_container.layout.display = 'flex' if is_enabled else 'none'
 
 def on_save_click(button):
     save_settings()
@@ -165,11 +162,11 @@ models_container = factory.create_vbox([model_widget, vae_widget, lora_widget, c
 
 download_box = factory.create_vbox([
     factory.create_html('Download Manager', 'header'),
-    factory.create_hbox([download_manager_widget, empowerment_widget]),
+    factory.create_hbox([download_manager_widget]),
     Model_url_widget, Vae_url_widget, LoRA_url_widget, Embedding_url_widget, Extensions_url_widget, ADetailer_url_widget
-], 'box_download')
-custom_files_box = factory.create_vbox([factory.create_html('Custom files', 'header'), custom_file_urls_widget], 'box_download')
-download_container = factory.create_vbox([download_box, custom_files_box], 'container_cdl')
+])
+custom_files_box = factory.create_vbox([factory.create_hbox([empowerment_widget]), custom_file_urls_widget], 'box_download')
+download_container = factory.create_vbox([download_box, custom_files_box], 'container_cdl') # <-- Re-nesting downloader
 
 display(top_container, models_container, download_container, GDrive_button, save_button)
 
@@ -179,5 +176,5 @@ on_dm_toggle(MockChange(download_manager_widget.value))
 js_content = ""
 if widgets_js.exists():
     with open(widgets_js, 'r', encoding='utf-8') as f:
-        js_code = f.read()
+        js_content = f.read()
 display(HTML(f"<script>{js_content}</script>"))
