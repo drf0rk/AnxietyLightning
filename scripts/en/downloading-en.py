@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (Final Version with Dependency Install)
+# /content/ANXETY/scripts/en/downloading-en.py (Definitive Version with FULL Dependencies)
 
 import os
 import sys
@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import re
 from urllib.parse import urlparse
+import shlex
 
 # --- Self-aware pathing ---
 try:
@@ -24,23 +25,32 @@ SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 SCRIPTS_UIs = ANXETY_ROOT / 'scripts' / 'UIs'
 WEBUI_DIR_MAPPING = {'A1111': 'A1111', 'Forge': 'Forge', 'ReForge': 'ReForge', 'Classic': 'Classic', 'ComfyUI': 'ComfyUI', 'SD-UX': 'SD-UX'}
 
+# --- FIX: Comprehensive Dependency Installation ---
 def install_dependencies():
-    """Installs required command-line tools if they haven't been installed yet."""
+    """Installs all required command-line tools if they haven't been installed yet."""
     if js.key_exists(SETTINGS_PATH, 'ENVIRONMENT.dependencies_installed'):
-        print("✅ Dependencies already checked.")
+        print("✅ Dependencies already installed.")
         return
 
-    print("🔧 Installing required dependencies (aria2c)...")
-    try:
-        subprocess.run(['apt-get', 'update'], check=True, capture_output=True)
-        subprocess.run(['apt-get', 'install', '-y', 'aria2'], check=True, capture_output=True)
-        js.save(str(SETTINGS_PATH), 'ENVIRONMENT.dependencies_installed', True)
-        print("✅ Dependencies installed successfully!")
-    except Exception as e:
-        print(f"❌ Failed to install dependencies: {e}", file=sys.stderr)
-        print("Please try running 'apt-get install -y aria2' in a notebook cell manually.", file=sys.stderr)
-        sys.exit(1)
+    print("🔧 Installing required dependencies (aria2, tunneling tools)...")
+    
+    # This list includes all necessary tools for downloading and tunneling.
+    install_lib = {
+        'aria2': "apt-get -y install -qq aria2",
+        'localtunnel': "npm install -g localtunnel",
+        'cloudflared': "wget -qO /usr/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x /usr/bin/cloudflared",
+        'zrok': "wget -qO zrok.tar.gz https://github.com/openziti/zrok/releases/download/v0.4.23/zrok_0.4.23_linux_amd64.tar.gz && tar -xzf zrok.tar.gz -C /usr/bin && rm -f zrok.tar.gz"
+    }
+    
+    for package, command in install_lib.items():
+        print(f"  - Installing {package}...")
+        try:
+            subprocess.run(shlex.split(command), check=True, capture_output=True, text=True)
+        except Exception as e:
+            print(f"  - ❌ Failed to install {package}: {e.stderr}", file=sys.stderr)
 
+    js.save(str(SETTINGS_PATH), 'ENVIRONMENT.dependencies_installed', True)
+    print("✅ All dependencies installed successfully!")
 
 def get_webui_path():
     webui_settings = js.read(SETTINGS_PATH, 'WEBUI', {})
@@ -72,10 +82,7 @@ def process_selections(selections, data_dict, prefix):
     return commands
 
 def main():
-    # --- THIS IS THE FIX ---
-    # Install dependencies FIRST, before doing anything else.
     install_dependencies()
-    # --- END OF FIX ---
 
     print(f"✅ Running download orchestrator: {__file__}")
     settings = js.read(SETTINGS_PATH, 'WIDGETS', {})
@@ -94,11 +101,7 @@ def main():
             try:
                 subprocess.run([sys.executable, str(installer_script)], check=True, capture_output=True, text=True)
             except subprocess.CalledProcessError as e:
-                print("\n" + "="*80)
-                print(f"❌❌❌ WEBUI INSTALLER SCRIPT FAILED! ('{installer_script.name}') ❌❌❌")
-                print("--- Captured Stderr ---\n", e.stderr)
-                print("="*80 + "\n")
-                raise e
+                print("\n" + "="*80); print(f"❌❌❌ WEBUI INSTALLER SCRIPT FAILED! ('{installer_script.name}') ❌❌❌"); print("--- Captured Stderr ---\n", e.stderr); print("="*80 + "\n"); raise e
         else:
             print(f"❌ Installer script not found: {installer_script}"); return
     else:
