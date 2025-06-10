@@ -1,137 +1,113 @@
-# ~ download.py | by ANXETY ~ (Final Self-Aware Path Correction)
+# scripts/en/downloading-en.py
 
 import os
-import re
 import sys
-import json
-import time
-import shlex
-import shutil
 import subprocess
 from pathlib import Path
-from datetime import timedelta
-from urllib.parse import urlparse
-from IPython import get_ipython
-from IPython.display import clear_output
-from IPython.utils import capture
 
-# --- Self-Aware Path Determination ---
+# Self-aware pathing
 try:
-    SCRIPTS = Path(__file__).parent.parent
+    ANXETY_ROOT = Path(__file__).resolve().parents[1]
 except NameError:
-    SCRIPTS = Path.cwd() / 'ANXETY' / 'scripts'
+    ANXETY_ROOT = Path.cwd()
 
-modules_path = SCRIPTS.parent / 'modules'
-if str(modules_path) not in sys.path:
-    sys.path.insert(0, str(modules_path))
+sys.path.append(str(ANXETY_ROOT))
 
-import json_utils as js
-from webui_utils import handle_setup_timer
-from CivitaiAPI import CivitAiAPI
-from Manager import m_download
+from modules.json_utils import JsonUtils
+from modules.Manager import Manager
 
-# --- Load settings and paths from the single source of truth ---
-SETTINGS_PATH = SCRIPTS.parent / 'settings.json'
-settings = js.read(SETTINGS_PATH)
-env_settings = settings.get('ENVIRONMENT', {})
-widget_settings = settings.get('WIDGETS', {})
-webui_settings = settings.get('WEBUI', {})
+# --- START OF FIX ---
+# This mapping translates dropdown names to actual directory names
+WEBUI_DIR_MAPPING = {
+    'A1111': 'stable-diffusion-webui',
+    'Forge': 'stable-diffusion-webui-forge',
+    'ReForge': 'stable-diffusion-webui-reforge',
+    'Classic': 'stable-diffusion-webui-classic',
+    'ComfyUI': 'ComfyUI',
+    'SD-UX': 'stable-diffusion-webui-ux'
+}
+# --- END OF FIX ---
 
-# Define all necessary paths from the loaded settings
-UI = webui_settings.get('current')
-WEBUI_PATH = Path(webui_settings.get('webui_path'))
-extension_dir = Path(webui_settings.get('extension_dir'))
-model_dir = Path(webui_settings.get('model_dir'))
-vae_dir = Path(webui_settings.get('vae_dir'))
-lora_dir = Path(webui_settings.get('lora_dir'))
-control_dir = Path(webui_settings.get('control_dir'))
+SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
+SCRIPTS_UIs = ANXETY_ROOT / 'scripts' / 'UIs'
+DOWNLOAD_RESULT_PY = ANXETY_ROOT / 'scripts' / 'download-result.py'
 
-# Get widget values
-XL_models = widget_settings.get('XL_models', False)
-inpainting_model = widget_settings.get('inpainting_model', False)
-model_selections = widget_settings.get('model', ('none',))
-vae_selections = widget_settings.get('vae', ('none',))
-lora_selections = widget_settings.get('lora', ('none',))
-controlnet_selections = widget_settings.get('controlnet', ('none',))
-latest_webui = widget_settings.get('latest_webui', True)
-latest_extensions = widget_settings.get('latest_extensions', True)
+js = JsonUtils()
 
-# --- The rest of the script logic ---
-# (The remainder of this script is correct and does not need to be changed)
+def get_webui_path():
+    """Reads settings and returns the constructed path to the WebUI."""
+    try:
+        widgets_settings = js.read(SETTINGS_PATH, 'WIDGETS')
+        env_settings = js.read(SETTINGS_PATH, 'ENVIRONMENT')
 
-ipyRun = get_ipython().run_line_magic
+        if not widgets_settings or not env_settings:
+            print("❌ Error reading WIDGETS or ENVIRONMENT from settings.json")
+            return None, None
 
-if not WEBUI_PATH.exists():
-    print(f"⌚ Unpacking Stable Diffusion | WEBUI: {UI}...")
-    ipyRun('run', f'"{SCRIPTS / "UIs" / UI}.py"')
-    handle_setup_timer(str(WEBUI_PATH), env_settings.get('start_timer'))
-    print(f"🚀 Unpacking {UI} Complete!")
-else:
-    print(f"🔧 Current WebUI: {UI} | Already installed.")
+        webui_name = widgets_settings.get('WebUI')
+        root_dir = Path(env_settings.get('root_dir', ''))
+        
+        if not webui_name or not root_dir.is_dir():
+            print(f"❌ Invalid WebUI name ('{webui_name}') or root directory ('{root_dir}').")
+            return None, None
+        
+        # --- MODIFIED LINE ---
+        # Use the mapping to get the correct directory name
+        webui_dir_name = WEBUI_DIR_MAPPING.get(webui_name, webui_name)
+        # --- END MODIFICATION ---
 
-if latest_webui or latest_extensions:
-    action = 'WebUI and Extensions' if latest_webui and latest_extensions else ('WebUI' if latest_webui else 'Extensions')
-    print(f"⌚️ Updating {action}...")
-    with capture.capture_output():
-        if latest_webui:
-            subprocess.run(['git', '-C', str(WEBUI_PATH), 'pull'])
-        if latest_extensions:
+        return root_dir / webui_dir_name, webui_name
+
+    except Exception as e:
+        print(f"❌ An error occurred in get_webui_path: {e}")
+        return None, None
+
+def main():
+    """Main execution function."""
+    print(f"✅ Attempting to run script from: {__file__}")
+
+    WEBUI_PATH, webui_name = get_webui_path()
+    if not WEBUI_PATH:
+        return # Exit if path could not be determined
+
+    if not WEBUI_PATH.exists():
+        print(f"⌚ Unpacking Stable Diffusion | WEBUI: {webui_name}...")
+        script_path = SCRIPTS_UIs / f'{webui_name}.py'
+        if script_path.exists():
+            subprocess.run([sys.executable, str(script_path)], check=True)
+        else:
+            print(f"❌ Installer script not found for {webui_name} at {script_path}")
+            return
+    else:
+        print(f"🔧 Current WebUI: {webui_name} | Already installed.")
+
+    settings = js.read(SETTINGS_PATH, 'WIDGETS')
+    latest_webui = settings.get('update_webui', False)
+    latest_extensions = settings.get('update_extensions', False)
+    
+    if latest_webui or latest_extensions:
+        print("⌚️ Updating WebUI and Extensions...")
+        if latest_webui and (WEBUI_PATH / '.git').exists():
+            subprocess.run(['git', '-C', str(WEBUI_PATH), 'pull'], check=True)
+        
+        extension_dir = WEBUI_PATH / 'extensions'
+        if latest_extensions and extension_dir.exists():
             for entry in os.listdir(str(extension_dir)):
                 dir_path = os.path.join(str(extension_dir), entry)
                 if os.path.isdir(dir_path) and os.path.exists(os.path.join(dir_path, '.git')):
-                    subprocess.run(['git', '-C', dir_path, 'pull'])
-    print(f"✨ Update {action} Complete!")
+                    print(f"  - Updating extension: {entry}")
+                    subprocess.run(['git', '-C', dir_path, 'pull'], check=True)
+        print("✨ Update WebUI and Extensions Complete!")
 
-model_files_path = SCRIPTS / ('_xl-models-data.py' if XL_models else '_models-data.py')
-loras_data_path = SCRIPTS / '_loras-data.py'
-with open(model_files_path, 'r', encoding='utf-8') as f: exec(f.read(), globals())
-with open(loras_data_path, 'r', encoding='utf-8') as f: exec(f.read(), globals())
+    print("📦 Processing asset download selections...")
+    if settings.get('download_manager', False):
+        manager = Manager(SETTINGS_PATH)
+        manager.run()
+    else:
+        print("Download Manager disabled. Skipping asset downloads.")
 
-model_list = globals().get('sdxl_models_data' if XL_models else 'sd15_model_data', {})
-vae_list = globals().get('sdxl_vae_data' if XL_models else 'sd15_vae_data', {})
-lora_list_to_use = globals().get('lora_data', {}).get('sdxl_loras' if XL_models else 'sd15_loras', {})
-controlnet_list_data = globals().get('controlnet_list', {})
+    print("🏁 Download processing complete!")
+    subprocess.run([sys.executable, str(DOWNLOAD_RESULT_PY)])
 
-def handle_submodels(selections, model_dict, dst_dir, inpainting=False):
-    download_list = []
-    if not isinstance(selections, (list, tuple)): return download_list
-    cleaned_selections = [re.sub(r'^\d+\.\s*', '', sel) for sel in selections]
-    for selection_name in cleaned_selections:
-        if selection_name == 'none': continue
-        if selection_name == 'ALL':
-            for model_group_key in model_dict:
-                model_group_items = model_dict[model_group_key]
-                items_to_process = model_group_items if isinstance(model_group_items, list) else [model_group_items]
-                for item in items_to_process:
-                    name = item.get('name') or os.path.basename(item['url'])
-                    if not inpainting and "inpainting" in name.lower():
-                        continue
-                    download_list.append(f"\"{item['url']}\" \"{dst_dir}\" \"{name}\"")
-            continue
-        if selection_name in model_dict:
-            model_group = model_dict[selection_name]
-            items_to_process = model_group if isinstance(model_group, list) else [model_group]
-            for model_info in items_to_process:
-                name = model_info.get('name') or os.path.basename(model_info['url'])
-                if not inpainting and "inpainting" in name.lower():
-                    continue
-                download_list.append(f"\"{model_info['url']}\" \"{dst_dir}\" \"{name}\"")
-    return download_list
-
-print('📦 Processing asset download selections...')
-line_entries = []
-line_entries.extend(handle_submodels(model_selections, model_list, model_dir, inpainting_model))
-line_entries.extend(handle_submodels(vae_selections, vae_list, vae_dir))
-line_entries.extend(handle_submodels(lora_selections, lora_list_to_use, lora_dir))
-line_entries.extend(handle_submodels(controlnet_selections, controlnet_list_data, control_dir))
-
-download_line = ', '.join(filter(None, line_entries))
-
-if download_line:
-    print("Starting asset downloads...")
-    m_download(download_line, log=True)
-else:
-    print("No additional assets selected for download.")
-
-print('\r🏁 Download processing complete!')
-ipyRun('run', f'"{SCRIPTS}/download-result.py"')
+if __name__ == "__main__":
+    main()
