@@ -72,7 +72,7 @@ webui_selection = {
     'ComfyUI': "--use-sage-attention --dont-print-server",
     'Forge':   "--xformers --forge-ref-a",
     'Classic': "--persistent-patches --cuda-stream --pin-shared-memory",
-    'ReForge': "--opt-sdp-attention --cuda-stream --pin-shared-memory", # Using stable SDP attention instead of xformers
+    'ReForge': "--skip-python-version-check --skip-torch-cuda-test --skip-install --opt-sdp-attention --cuda-stream --pin-shared-memory", # Using stable SDP attention instead of xformers
     'SD-UX':   "--xformers --no-half-vae"
 }
 # --- END FIX ---
