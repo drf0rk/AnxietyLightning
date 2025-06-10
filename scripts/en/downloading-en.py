@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (Final Orchestrator with Error Handling)
+# /content/ANXETY/scripts/en/downloading-en.py (Final Version with Deep Error Capture)
 
 import os
 import sys
@@ -69,16 +69,25 @@ def main():
         installer_script = SCRIPTS_UIs / f"{WEBUI_DIR_MAPPING.get(webui_name, webui_name)}.py"
         if installer_script.exists():
             # --- THIS IS THE FIX ---
+            # We now capture the output of the child script so we can display it on failure.
             try:
-                subprocess.run([sys.executable, str(installer_script)], check=True, text=True)
+                subprocess.run(
+                    [sys.executable, str(installer_script)],
+                    check=True,
+                    capture_output=True, # Capture stdout and stderr
+                    text=True
+                )
             except subprocess.CalledProcessError as e:
                 print("\n" + "="*80)
                 print("❌❌❌ WEBUI INSTALLER SCRIPT FAILED! ❌❌❌")
                 print(f"The script '{installer_script.name}' exited with a non-zero status.")
-                print("This is a critical error preventing the setup from continuing.")
-                print(f"Review the output from the script above for the specific error from 'git' or other tools.")
+                print("This is a critical error. Below is the full output from the failed script:")
+                print("\n--- Captured Standard Output (stdout) from installer ---")
+                print(e.stdout if e.stdout else "[No standard output was captured]")
+                print("\n--- Captured Standard Error (stderr) from installer ---")
+                print(e.stderr if e.stderr else "[No standard error was captured]")
                 print("="*80 + "\n")
-                # We re-raise the exception to ensure the notebook cell stops execution.
+                # We re-raise the exception to halt the notebook execution cleanly.
                 raise e
             # --- END OF FIX ---
         else:
@@ -86,6 +95,7 @@ def main():
     else:
         print(f"🔧 WebUI found: {webui_name}")
 
+    # The rest of the script remains the same
     print("📦 Processing asset download selections...")
     is_xl = settings.get('XL_models', False)
     models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
