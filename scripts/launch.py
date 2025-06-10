@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (Final Robust Version)
+# /content/ANXETY/scripts/launch.py (Final Version with Path Arguments)
 
 import os
 import sys
@@ -27,29 +27,27 @@ def get_launch_config():
     env_settings = js.read(SETTINGS_PATH, 'ENVIRONMENT', {})
 
     if not all([webui_settings, widget_settings, env_settings]):
-        print("❌ FATAL: One or more configuration sections (WEBUI, WIDGETS, ENVIRONMENT) are missing from settings.json.")
+        print("❌ FATAL: One or more configuration sections (WEBUI, WIDGETS, ENVIRONMENT) are missing.")
         return None
 
-    config = {
-        "name": webui_settings.get("current"), "path": Path(webui_settings.get("webui_path")),
-        "args": widget_settings.get("commandline_arguments", ""), "env_name": env_settings.get("env_name")
+    return {
+        "webui_settings": webui_settings,
+        "widget_settings": widget_settings,
+        "env_settings": env_settings
     }
-
-    if not all(config.values()):
-        print(f"❌ FATAL: Incomplete launch configuration: {config}")
-        return None
-
-    return config
 
 def main(args):
     """Main launch function."""
     config = get_launch_config()
     if not config: sys.exit(1)
 
-    webui_name, webui_path, cli_args_str, env_name = config["name"], config["path"], config["args"], config["env_name"]
+    webui_name = config["webui_settings"].get("current")
+    webui_path = Path(config["webui_settings"].get("webui_path"))
+    cli_args_str = config["widget_settings"].get("commandline_arguments", "")
+    env_name = config["env_settings"].get("env_name")
 
     if not webui_path.exists():
-        print(f"❌ FATAL: WebUI directory does not exist: {webui_path}. Please re-run the 'Downloading' cell."); sys.exit(1)
+        print(f"❌ FATAL: WebUI directory does not exist: {webui_path}."); sys.exit(1)
 
     launch_script_name = "main.py" if webui_name == "ComfyUI" else "launch.py"
     launch_script_path = webui_path / launch_script_name
@@ -64,25 +62,28 @@ def main(args):
     if '--share' in final_args: final_args.remove('--share')
     if env_name in ["Google Colab", "Kaggle", "Lightning AI"] and '--listen' not in final_args:
         final_args.append('--listen')
+
+    # --- FIX: Add shared directory paths as arguments ---
+    path_arg_map = {
+        '--models-dir': 'model_dir',
+        '--vae-dir': 'vae_dir',
+        '--lora-dir': 'lora_dir',
+        '--embeddings-dir': 'embed_dir',
+        '--controlnet-dir': 'control_dir'
+    }
+    
+    webui_paths = config["webui_settings"]
+    for arg, key in path_arg_map.items():
+        if key in webui_paths and webui_paths[key]:
+            final_args.extend([arg, webui_paths[key]])
+    # --- END FIX ---
         
     print(f"🚀 Launching {webui_name} with arguments: {' '.join(final_args)}")
     print("-" * 60)
 
     command = [sys.executable, str(launch_script_path)] + final_args
     
-    # --- FIX: Use Popen and manually pipe stdout/stderr to ensure all output is displayed ---
-    # This prevents the cell from finishing silently if the subprocess exits immediately.
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
-
-    for line in iter(process.stdout.readline, ''):
-        sys.stdout.write(line)
-        sys.stdout.flush()
-    
-    process.stdout.close()
-    return_code = process.wait()
-
-    if return_code:
-        print(f"\n❌ WebUI process exited with error code {return_code}.")
+    subprocess.run(command)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="AnxietyLightning Launcher")

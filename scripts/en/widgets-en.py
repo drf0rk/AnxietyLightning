@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets-en.py (Corrected with Self-Aware Pathing)
+# /content/ANXETY/scripts/en/widgets-en.py (Final Version with Correct User-Provided Arguments)
 
 import os
 import sys
@@ -6,14 +6,10 @@ from pathlib import Path
 
 # --- Self-aware pathing to fix ModuleNotFoundError ---
 try:
-    # This assumes the script is in /.../ANXETY/scripts/en/
-    # The project root (ANXETY) is 3 levels up.
     ANXETY_ROOT = Path(__file__).resolve().parents[2]
 except NameError:
-    # Fallback for environments where __file__ is not defined
     ANXETY_ROOT = Path.cwd()
 
-# Add the project root to the Python path
 if str(ANXETY_ROOT) not in sys.path:
     sys.path.insert(0, str(ANXETY_ROOT))
 # --- End of fix ---
@@ -26,7 +22,6 @@ import ipywidgets as widgets
 from ipywidgets import Layout
 
 # --- Constants and Platform-Aware Pathing ---
-# ANXETY_ROOT is already defined above
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 SCRIPTS = ANXETY_ROOT / 'scripts'
 CSS = ANXETY_ROOT / 'CSS'
@@ -65,7 +60,6 @@ cnet_list = read_data_keys(SCRIPTS / '_models-data.py', 'controlnet_list', ['non
 XL_cnet_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'controlnet_list', ['none', 'ALL'])
 sd15_lora_list, sdxl_lora_list = read_lora_keys_by_type(SCRIPTS / '_loras-data.py')
 
-# Main Widgets
 XL_models_widget = factory.create_checkbox(description='XL', value=False, class_names='sdxl')
 model_widget = factory.create_select_multiple(description='Models:', options=model_list)
 inpainting_model_widget = factory.create_checkbox(description='Inpainting', value=False, class_names='inpaint')
@@ -73,15 +67,14 @@ vae_widget = factory.create_select_multiple(description='VAE:', options=vae_list
 lora_widget = factory.create_select_multiple(description='LoRA:', options=sd15_lora_list)
 controlnet_widget = factory.create_select_multiple(description='ControlNet:', options=cnet_list)
 
-# WebUI and Settings Widgets
 webui_options = ['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX']
-# --- FINAL FIX: Using the complete and correct arguments for all UIs ---
+# --- FINAL FIX: Using the user-provided dictionary as the source of truth ---
 webui_selection = {
-    'A1111':   "--xformers --no-half-vae --enable-insecure-extension-access",
-    'ComfyUI': "--windows-standalone-build",
-    'Forge':   "--xformers --forge-ref-a",
+    'A1111':   "--xformers --no-half-vae",
+    'ComfyUI': "--use-sage-attention --dont-print-server",
+    'Forge':   "--disable-xformers --opt-sdp-attention --cuda-stream --pin-shared-memory",
     'Classic': "--persistent-patches --cuda-stream --pin-shared-memory",
-    'ReForge': "--xformers --cuda-stream --pin-shared-memory",
+    'ReForge': "--xformers --reinstall-xformers --cuda-stream --pin-shared-memory",
     'SD-UX':   "--xformers --no-half-vae"
 }
 # --- END FIX ---
@@ -92,7 +85,6 @@ commandline_arguments_widget = factory.create_text('Arguments:', '')
 GDrive_button = factory.create_button(description='Mount GDrive', class_names='gdrive-btn')
 save_button = factory.create_button(description='Save settings', class_names='button_save')
 
-# --- Callbacks and Observers ---
 def on_xl_change(change):
     is_xl = change.new
     model_widget.options = XL_model_list if is_xl else model_list
@@ -108,7 +100,6 @@ def on_save_click(button):
     all_ui_components = [top_container, models_container, GDrive_button, save_button]
     factory.close(all_ui_components, class_names='hide')
 
-# --- Settings Save/Load ---
 SETTINGS_KEYS = [
     'XL_models', 'model', 'inpainting_model', 'vae', 'lora', 'controlnet',
     'latest_webui', 'latest_extensions', 'change_webui', 'commandline_arguments',
@@ -129,20 +120,15 @@ def load_settings():
     GDrive_button.toggle = js.read(str(SETTINGS_PATH), 'mountGDrive', False)
     if GDrive_button.toggle: GDrive_button.add_class('active')
 
-# --- Display Logic ---
 factory.load_css(widgets_css)
-
 XL_models_widget.observe(on_xl_change, names='value')
 change_webui_widget.observe(on_webui_change, names='value')
 save_button.on_click(on_save_click)
-
 webui_box = factory.create_vbox([change_webui_widget, commandline_arguments_widget, factory.create_hbox([latest_webui_widget, latest_extensions_widget])], 'box_webui')
 settings_box = factory.create_vbox([factory.create_html('Settings', 'header'), factory.create_hbox([XL_models_widget, inpainting_model_widget])], 'box_settings')
 top_container = factory.create_hbox([webui_box, settings_box], 'container_webui')
 models_container = factory.create_vbox([model_widget, vae_widget, lora_widget, controlnet_widget], 'container_models')
-
 display(top_container, models_container, GDrive_button, save_button)
-
 load_settings()
 
 if widgets_js.exists():
