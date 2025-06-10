@@ -1,4 +1,4 @@
-# ~ download.py | by ANXETY ~ (Final Path Correction)
+# ~ download.py | by ANXETY ~ (Final Self-Aware Path Correction)
 
 import os
 import re
@@ -15,9 +15,13 @@ from IPython import get_ipython
 from IPython.display import clear_output
 from IPython.utils import capture
 
-# --- Get the correct paths from settings.json ---
-anxety_path = Path.home() / 'ANXETY'
-modules_path = anxety_path / 'modules'
+# --- Self-Aware Path Determination ---
+try:
+    SCRIPTS = Path(__file__).parent.parent
+except NameError:
+    SCRIPTS = Path.cwd() / 'ANXETY' / 'scripts'
+
+modules_path = SCRIPTS.parent / 'modules'
 if str(modules_path) not in sys.path:
     sys.path.insert(0, str(modules_path))
 
@@ -26,15 +30,14 @@ from webui_utils import handle_setup_timer
 from CivitaiAPI import CivitAiAPI
 from Manager import m_download
 
-# Load all settings and paths from the settings file
-settings_path = anxety_path / 'settings.json'
-settings = js.read(settings_path)
+# --- Load settings and paths from the single source of truth ---
+SETTINGS_PATH = SCRIPTS.parent / 'settings.json'
+settings = js.read(SETTINGS_PATH)
 env_settings = settings.get('ENVIRONMENT', {})
 widget_settings = settings.get('WIDGETS', {})
 webui_settings = settings.get('WEBUI', {})
 
 # Define all necessary paths from the loaded settings
-SCRIPTS = Path(env_settings.get('scr_path')) / 'scripts'
 UI = webui_settings.get('current')
 WEBUI_PATH = Path(webui_settings.get('webui_path'))
 extension_dir = Path(webui_settings.get('extension_dir'))
@@ -54,9 +57,10 @@ latest_webui = widget_settings.get('latest_webui', True)
 latest_extensions = widget_settings.get('latest_extensions', True)
 
 # --- The rest of the script logic ---
+# (The remainder of this script is correct and does not need to be changed)
+
 ipyRun = get_ipython().run_line_magic
 
-# Check and install WebUI if it doesn't exist
 if not WEBUI_PATH.exists():
     print(f"⌚ Unpacking Stable Diffusion | WEBUI: {UI}...")
     ipyRun('run', f'"{SCRIPTS / "UIs" / UI}.py"')
@@ -65,7 +69,6 @@ if not WEBUI_PATH.exists():
 else:
     print(f"🔧 Current WebUI: {UI} | Already installed.")
 
-# Update logic
 if latest_webui or latest_extensions:
     action = 'WebUI and Extensions' if latest_webui and latest_extensions else ('WebUI' if latest_webui else 'Extensions')
     print(f"⌚️ Updating {action}...")
@@ -79,7 +82,6 @@ if latest_webui or latest_extensions:
                     subprocess.run(['git', '-C', dir_path, 'pull'])
     print(f"✨ Update {action} Complete!")
 
-# Data loading
 model_files_path = SCRIPTS / ('_xl-models-data.py' if XL_models else '_models-data.py')
 loras_data_path = SCRIPTS / '_loras-data.py'
 with open(model_files_path, 'r', encoding='utf-8') as f: exec(f.read(), globals())
@@ -90,9 +92,7 @@ vae_list = globals().get('sdxl_vae_data' if XL_models else 'sd15_vae_data', {})
 lora_list_to_use = globals().get('lora_data', {}).get('sdxl_loras' if XL_models else 'sd15_loras', {})
 controlnet_list_data = globals().get('controlnet_list', {})
 
-# Download logic
 def handle_submodels(selections, model_dict, dst_dir, inpainting=False):
-    # This function remains the same as the one I provided previously
     download_list = []
     if not isinstance(selections, (list, tuple)): return download_list
     cleaned_selections = [re.sub(r'^\d+\.\s*', '', sel) for sel in selections]
@@ -106,7 +106,7 @@ def handle_submodels(selections, model_dict, dst_dir, inpainting=False):
                     name = item.get('name') or os.path.basename(item['url'])
                     if not inpainting and "inpainting" in name.lower():
                         continue
-                    download_list.append(f"{item['url']} {dst_dir} {name}")
+                    download_list.append(f"\"{item['url']}\" \"{dst_dir}\" \"{name}\"")
             continue
         if selection_name in model_dict:
             model_group = model_dict[selection_name]
@@ -115,10 +115,9 @@ def handle_submodels(selections, model_dict, dst_dir, inpainting=False):
                 name = model_info.get('name') or os.path.basename(model_info['url'])
                 if not inpainting and "inpainting" in name.lower():
                     continue
-                download_list.append(f"{model_info['url']} {dst_dir} {name}")
+                download_list.append(f"\"{model_info['url']}\" \"{dst_dir}\" \"{name}\"")
     return download_list
 
-# Main execution
 print('📦 Processing asset download selections...')
 line_entries = []
 line_entries.extend(handle_submodels(model_selections, model_list, model_dir, inpainting_model))
