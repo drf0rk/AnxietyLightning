@@ -1,54 +1,59 @@
-# ~ ReForge.py | by ANXETY ~
+# ~ ReForge.py | by ANXETY ~ (Corrected with Centralized Pathing)
 
-from Manager import m_download, m_clone    # Every Download | Clone
-import json_utils as js                    # JSON
-
-from IPython.display import clear_output
-from IPython.utils import capture
-from IPython import get_ipython
-from pathlib import Path
-import subprocess
-import asyncio
 import os
-import shutil # Import shutil for rmtree
+import sys
+from pathlib import Path
+import asyncio
+import subprocess
 
+# --- Add modules to path to import utils ---
+# This robustly finds the ANXETY folder regardless of the platform
+try:
+    # On Colab, home is /root, but the files are in /content.
+    project_home = Path('/content') if os.path.exists('/content') else Path.home()
+    anxety_path = project_home / 'ANXETY'
+    if not anxety_path.exists(): # Fallback for Lightning AI or other structures
+        anxety_path = Path.cwd() / 'ANXETY'
+    
+    modules_path = anxety_path / 'modules'
+    if str(modules_path) not in sys.path:
+        sys.path.insert(0, str(modules_path))
+
+    import json_utils as js
+    from Manager import m_download
+except ImportError as e:
+    print(f"FATAL ERROR: Could not import core modules in ReForge.py. Pathing issue: {e}")
+    sys.exit(1)
+
+
+# --- Get All Paths from the Single Source of Truth: settings.json ---
+SETTINGS_PATH = anxety_path / 'settings.json'
+settings = js.read(SETTINGS_PATH)
+env_settings = settings.get('ENVIRONMENT', {})
+webui_settings = settings.get('WEBUI', {})
+
+# Constants now defined from the central settings file
+UI = 'ReForge'
+HOME = Path(env_settings.get('home_path'))
+WEBUI = HOME / UI # Construct the correct path
+VENV = Path(env_settings.get('venv_path'))
+FORK_REPO = env_settings.get('fork')
+BRANCH = env_settings.get('branch')
+EXTS = Path(webui_settings.get('extension_dir'))
 
 CD = os.chdir
 ipySys = get_ipython().system
 
-# Constants
-UI = 'ReForge'
-
-HOME = Path.home()
-WEBUI = HOME / UI
-VENV = HOME / 'venv'
-SCR_PATH = HOME / 'ANXETY'
-SETTINGS_PATH = SCR_PATH / 'settings.json'
-
-ENV_NAME = js.read(SETTINGS_PATH, 'ENVIRONMENT.env_name')
-
-REPO_URL = f"https://huggingface.co/NagisaNao/ANXETY/resolve/main/{UI}.zip"
-FORK_REPO = js.read(SETTINGS_PATH, 'ENVIRONMENT.fork')
-BRANCH = js.read(SETTINGS_PATH, 'ENVIRONMENT.branch')
-EXTS = js.read(SETTINGS_PATH, 'WEBUI.extension_dir')
-
-CD(HOME)
-
-
-## ================== WEB UI OPERATIONS ==================
+# --- The rest of the script now uses the correct paths ---
 
 async def _download_file(url, directory, filename):
     """Downloads a single file."""
     os.makedirs(directory, exist_ok=True)
     file_path = os.path.join(directory, filename)
-
-    if os.path.exists(file_path):
-        os.remove(file_path)
-
+    if os.path.exists(file_path): os.remove(file_path)
     process = await asyncio.create_subprocess_shell(
-        f"curl -sLo {file_path} {url}",
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
+        f"curl -sLo \"{file_path}\" \"{url}\"",
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
     await process.communicate()
 
@@ -58,45 +63,35 @@ async def download_files(file_list):
     for file_info in file_list:
         parts = file_info.split(',')
         url = parts[0].strip()
-        directory = parts[1].strip() if len(parts) > 1 else WEBUI   # Default Save Path
+        directory = parts[1].strip() if len(parts) > 1 else str(WEBUI)
         filename = parts[2].strip() if len(parts) > 2 else os.path.basename(url)
         tasks.append(_download_file(url, directory, filename))
     await asyncio.gather(*tasks)
 
 async def download_configuration():
     """Downloads configuration files and clones extensions."""
-    ## FILES
     url_cfg = f"https://raw.githubusercontent.com/{FORK_REPO}/{BRANCH}/__configs__"
+    # Corrected python version to be dynamic
+    py_version = f"python{sys.version_info.major}.{sys.version_info.minor}"
     configs = [
-        # settings
         f"{url_cfg}/{UI}/config.json",
         f"{url_cfg}/{UI}/ui-config.json",
         f"{url_cfg}/styles.csv",
         f"{url_cfg}/user.css",
-        # other | UI
-        f"{url_cfg}/card-no-preview.png, {WEBUI}/html",
+        f"{url_cfg}/card-no-preview.png,{str(WEBUI / 'html')}",
         f"{url_cfg}/notification.mp3",
-        # other | tunneling
-        f"{url_cfg}/gradio-tunneling.py, {VENV}/lib/python3.10/site-packages/gradio_tunneling, main.py"  # Replace py-Script
+        f"{url_cfg}/gradio-tunneling.py,{str(VENV / 'lib' / py_version / 'site-packages' / 'gradio_client')},tunnel.py"
     ]
     await download_files(configs)
-
-    ## REPOS
+    
     extensions_list = [
-        ## ANXETY Edits
         'https://github.com/anxety-solo/webui_timer timer',
         'https://github.com/anxety-solo/anxety-theme',
         'https://github.com/anxety-solo/sd-civitai-browser-plus Civitai-Browser-Plus',
-
-        ## Gutris1
         'https://github.com/gutris1/sd-image-viewer Image-Viewer',
         'https://github.com/gutris1/sd-image-info Image-Info',
         'https://github.com/gutris1/sd-hub SD-Hub',
-
-        ## OTHER | ON
         'https://github.com/Bing-su/adetailer',
-
-        ## NEW Extensions
         'https://github.com/Haoming02/sd-webui-mosaic-outpaint',
         'https://github.com/continue-revolution/sd-webui-segment-anything',
         'https://github.com/kainatquaderee/sd-webui-reactor-Nsfw_freedom',
@@ -109,66 +104,30 @@ async def download_configuration():
         'https://github.com/yownas/sd-webui-faceswapper',
         'https://github.com/leeguandong/sd_webui_outpainting',
         'https://github.com/thoraxe69/sd-webui-roop',
-
-        ## OTHER | OFF
-        # 'https://github.com/thomasasfk/sd-webui-aspect-ratio-helper Aspect-Ratio-Helper',
-        # 'https://github.com/zanllp/sd-webui-infinite-image-browsing Infinite-Image-Browsing',
-        # 'https://github.com/hako-mikan/sd-webui-regional-prompter Regional-Prompter',
-        # 'https://github.com/ilian6806/stable-diffusion-webui-state State',
-        # 'https://github.com/hako-mikan/sd-webui-supermerger Supermerger',
-        # 'https://github.com/DominikDoom/a1111-sd-webui-tagcomplete TagComplete',
-        # 'https://github.com/Tsukreya/Umi-AI-Wildcards',
-        # 'https://github.com/picobyte/stable-diffusion-webui-wd14-tagger wd14-tagger'
     ]
-    if ENV_NAME == 'Kaggle':
-        extensions_list.append('https://github.com/gutris1/sd-encrypt-image Encrypt-Image')
-
+    
     os.makedirs(EXTS, exist_ok=True)
     CD(EXTS)
-
-    tasks = []
-    for command in extensions_list:
-        tasks.append(asyncio.create_subprocess_shell(
-            f"git clone --depth 1 {command}",
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        ))
-
+    tasks = [asyncio.create_subprocess_shell(f"git clone --depth 1 {cmd}", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for cmd in extensions_list]
     await asyncio.gather(*tasks)
 
 def unpack_webui():
     """Unpacks the WebUI zip file and cleans up model-related directories."""
+    REPO_URL = f"https://huggingface.co/NagisaNao/ANXETY/resolve/main/{UI}.zip"
     zip_path = f"{HOME}/{UI}.zip"
-    m_download(f"{REPO_URL} {HOME} {UI}.zip")
-    ipySys(f"unzip -q -o {zip_path} -d {WEBUI}")
-    ipySys(f"rm -rf {zip_path}")
+    m_download(f"\"{REPO_URL}\" \"{HOME}\" \"{UI}.zip\"")
+    ipySys(f"unzip -q -o \"{zip_path}\" -d \"{WEBUI}\"")
+    ipySys(f"rm -rf \"{zip_path}\"")
     
-    # --- START OF MODIFICATION ---
-    # Define model-related directories that should NOT be in the WebUI folder
-    # as they are handled by the shared model base.
-    model_dirs_to_clean = [
-        WEBUI / 'models',
-        WEBUI / 'VAE',
-        WEBUI / 'Lora',
-        WEBUI / 'embeddings',
-        WEBUI / 'ControlNet',
-        # Add any other subdirectories that might contain large model files
-        # but are not needed within the UI's specific folder.
-    ]
+    model_dirs_to_clean = ['models', 'VAE', 'Lora', 'embeddings', 'ControlNet']
+    for d_name in model_dirs_to_clean:
+        d_path = WEBUI / d_name
+        if d_path.exists() and d_path.is_dir():
+            print(f"   Deleting stub directory: {d_path}")
+            shutil.rmtree(d_path)
 
-    print(f"🧹 Cleaning up unzipped model-related directories within {UI}...")
-    for d in model_dirs_to_clean:
-        if d.exists() and d.is_dir():
-            print(f"   Deleting: {d}")
-            try:
-                shutil.rmtree(d)
-            except OSError as e:
-                print(f"   Error deleting {d}: {e}")
-    # --- END OF MODIFICATION ---
-
-## ====================== MAIN CODE ======================
 if __name__ == '__main__':
+    from IPython.utils import capture
     with capture.capture_output():
         unpack_webui()
         asyncio.run(download_configuration())
-
