@@ -72,7 +72,7 @@ webui_selection = {
     'ComfyUI': "--use-sage-attention --dont-print-server",
     'Forge':   "--xformers --forge-ref-a",
     'Classic': "--persistent-patches --cuda-stream --pin-shared-memory",
-    'ReForge': "--xformers --cuda-stream --pin-shared-memory",
+    'ReForge': "--xformers --cuda-stream --pin-shared-memory --share",
     'SD-UX':   "--xformers --no-half-vae"
 }
 # --- END FIX ---
