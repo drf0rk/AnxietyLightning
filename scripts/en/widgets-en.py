@@ -1,4 +1,4 @@
-# ~ widgets.py | by ANXETY ~ (FINAL POLISHED VERSION v2)
+# ~ widgets.py | by ANXETY ~ (DEFINITIVE FINAL VERSION)
 
 from IPython.display import display, HTML
 from widget_factory import WidgetFactory
@@ -78,14 +78,16 @@ controlnet_widget = factory.create_select_multiple(description='ControlNet:', op
 
 webui_options = ['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX']
 webui_selection = {
-    'A1111': '--xformers --no-half-vae --enable-insecure-extension-access',
-    'Forge': '--xformers --forge-ref-a', 'ReForge': '--xformers --reforge-ref-a',
-    'ComfyUI': '--windows-standalone-build', 'Classic': '', 'SD-UX': ''
+    'A1111': '--xformers --no-half-vae --enable-insecure-extension-access', 'Forge': '--xformers --forge-ref-a',
+    'ReForge': '--xformers --reforge-ref-a', 'ComfyUI': '--windows-standalone-build', 'Classic': '', 'SD-UX': ''
 }
 latest_webui_widget = factory.create_checkbox('Update WebUI', False)
 latest_extensions_widget = factory.create_checkbox('Update Extensions', False)
 change_webui_widget = factory.create_dropdown('WebUI:', webui_options)
 commandline_arguments_widget = factory.create_text('Arguments:', '')
+
+empowerment_widget = factory.create_checkbox('Empowerment Mode', False)
+download_manager_widget = factory.create_checkbox('Download Manager', True)
 Model_url_widget = factory.create_text('Model:', 'Model URL')
 Vae_url_widget = factory.create_text('VAE:', 'VAE URL')
 LoRA_url_widget = factory.create_text('LoRA:', 'LoRA URL')
@@ -93,8 +95,6 @@ Embedding_url_widget = factory.create_text('Embedding:', 'Embedding URL')
 Extensions_url_widget = factory.create_text('Extensions:', 'Extension Git-Repo')
 ADetailer_url_widget = factory.create_text('ADetailer:', 'ADetailer URL')
 custom_file_urls_widget = factory.create_textarea('Custom Files:', 'Enter URLs, one per line')
-download_manager_widget = factory.create_checkbox('Download Manager', True)
-empowerment_widget = factory.create_html('<a href="https://github.com/d-fa/empowerment" target="_blank">Empowerment Mode</a>')
 GDrive_button = factory.create_button(description='Mount GDrive', class_names='gdrive-btn')
 save_button = factory.create_button(description='Save settings', class_names='button_save')
 
@@ -109,23 +109,34 @@ def on_xl_change(change):
 def on_webui_change(change):
     commandline_arguments_widget.value = webui_selection.get(change.new, '')
 
-def on_dm_toggle(change): # <-- START OF FINAL FIX
-    """Toggles visibility of the downloader using CSS classes."""
+def on_empowerment_toggle(change):
+    custom_files_box.layout.display = '' if change.new else 'none'
+
+def on_dm_toggle(change): # <--- START OF FINAL FIX
+    """Toggles visibility of the downloader using the layout property."""
     is_enabled = change.new
-    if is_enabled:
-        download_container.remove_class('hidden')
+    download_box.layout.display = '' if is_enabled else 'none'
+    if not is_enabled:
+        custom_files_box.layout.display = 'none'
     else:
-        download_container.add_class('hidden') #<-- END OF FINAL FIX
+        on_empowerment_toggle(MockChange(empowerment_widget.value)) #<--- END OF FINAL FIX
+
+def on_save_click(button):
+    save_settings()
+    all_ui_components = [top_container, models_container, download_container, GDrive_button, save_button]
+    factory.close(all_ui_components, class_names='hide')
 
 # --- Settings Save/Load ---
 SETTINGS_KEYS = [
     'XL_models', 'model', 'inpainting_model', 'vae', 'lora', 'controlnet',
     'latest_webui', 'latest_extensions', 'change_webui', 'commandline_arguments',
     'Model_url', 'Vae_url', 'LoRA_url', 'Embedding_url', 'Extensions_url', 'ADetailer_url',
-    'custom_file_urls'
+    'custom_file_urls', 'download_manager', 'empowerment'
 ]
 def save_settings():
-    widget_values = {key: globals()[f"{key}_widget"].value for key in SETTINGS_KEYS}
+    widget_values = {}
+    for key in SETTINGS_KEYS:
+        if f"{key}_widget" in globals(): widget_values[key] = globals()[f"{key}_widget"].value
     js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
     js.save(str(SETTINGS_PATH), 'mountGDrive', getattr(GDrive_button, 'toggle', False))
     update_current_webui(change_webui_widget.value)
@@ -134,15 +145,9 @@ def load_settings():
     if js.key_exists(str(SETTINGS_PATH), 'WIDGETS'):
         widget_data = js.read(str(SETTINGS_PATH), 'WIDGETS')
         for key in SETTINGS_KEYS:
-            if key in widget_data and f"{key}_widget" in globals():
-                globals()[f"{key}_widget"].value = widget_data.get(key)
+            if key in widget_data and f"{key}_widget" in globals(): globals()[f"{key}_widget"].value = widget_data.get(key)
     GDrive_button.toggle = js.read(str(SETTINGS_PATH), 'mountGDrive', False)
     GDrive_button.add_class('active') if GDrive_button.toggle else GDrive_button.remove_class('active')
-
-def on_save_click(button):
-    save_settings()
-    all_ui_components = [top_container, models_container, download_container, GDrive_button, save_button]
-    factory.close(all_ui_components, class_names='hide')
 
 # --- Display Logic ---
 factory.load_css(widgets_css)
@@ -151,14 +156,20 @@ XL_models_widget.observe(on_xl_change, names='value')
 change_webui_widget.observe(on_webui_change, names='value')
 save_button.on_click(on_save_click)
 download_manager_widget.observe(on_dm_toggle, names='value')
+empowerment_widget.observe(on_empowerment_toggle, names='value')
 
 webui_box = factory.create_vbox([change_webui_widget, commandline_arguments_widget, factory.create_hbox([latest_webui_widget, latest_extensions_widget])], 'box_webui')
 settings_box = factory.create_vbox([factory.create_html('Settings', 'header'), factory.create_hbox([XL_models_widget, inpainting_model_widget])], 'box_settings')
 top_container = factory.create_hbox([webui_box, settings_box], 'container_webui')
 models_container = factory.create_vbox([model_widget, vae_widget, lora_widget, controlnet_widget], 'container_models')
-download_box = factory.create_vbox([factory.create_html('Download Manager', 'header'), factory.create_hbox([download_manager_widget, empowerment_widget]), Model_url_widget, Vae_url_widget, LoRA_url_widget, Embedding_url_widget, Extensions_url_widget, ADetailer_url_widget], 'box_download')
+
+download_box = factory.create_vbox([
+    factory.create_html('Download Manager', 'header'),
+    factory.create_hbox([download_manager_widget, empowerment_widget]),
+    Model_url_widget, Vae_url_widget, LoRA_url_widget, Embedding_url_widget, Extensions_url_widget, ADetailer_url_widget
+], 'box_download')
 custom_files_box = factory.create_vbox([factory.create_html('Custom files', 'header'), custom_file_urls_widget], 'box_download')
-download_container = factory.create_hbox([download_box, custom_files_box], 'container_cdl')
+download_container = factory.create_vbox([download_box, custom_files_box], 'container_cdl')
 
 display(top_container, models_container, download_container, GDrive_button, save_button)
 
@@ -168,5 +179,5 @@ on_dm_toggle(MockChange(download_manager_widget.value))
 js_content = ""
 if widgets_js.exists():
     with open(widgets_js, 'r', encoding='utf-8') as f:
-        js_content = f.read()
+        js_code = f.read()
 display(HTML(f"<script>{js_content}</script>"))
