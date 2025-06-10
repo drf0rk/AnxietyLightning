@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (Final Version with Path Arguments)
+# /content/ANXETY/scripts/launch.py (Final Version with Correct --data-dir Argument)
 
 import os
 import sys
@@ -19,6 +19,10 @@ import json_utils as js
 
 # --- Configuration ---
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
+# --- FIX: Define the shared model base path here ---
+HOME = Path(js.read(SETTINGS_PATH, 'ENVIRONMENT.home_path', str(Path.home())))
+SHARED_MODEL_BASE = HOME / 'sd_models_shared'
+# --- END FIX ---
 
 def get_launch_config():
     """Reads all necessary configuration for launch from settings.json."""
@@ -27,7 +31,7 @@ def get_launch_config():
     env_settings = js.read(SETTINGS_PATH, 'ENVIRONMENT', {})
 
     if not all([webui_settings, widget_settings, env_settings]):
-        print("❌ FATAL: One or more configuration sections (WEBUI, WIDGETS, ENVIRONMENT) are missing.")
+        print("❌ FATAL: One or more configuration sections are missing.")
         return None
 
     return {
@@ -63,19 +67,9 @@ def main(args):
     if env_name in ["Google Colab", "Kaggle", "Lightning AI"] and '--listen' not in final_args:
         final_args.append('--listen')
 
-    # --- FIX: Add shared directory paths as arguments ---
-    path_arg_map = {
-        '--models-dir': 'model_dir',
-        '--vae-dir': 'vae_dir',
-        '--lora-dir': 'lora_dir',
-        '--embeddings-dir': 'embed_dir',
-        '--controlnet-dir': 'control_dir'
-    }
-    
-    webui_paths = config["webui_settings"]
-    for arg, key in path_arg_map.items():
-        if key in webui_paths and webui_paths[key]:
-            final_args.extend([arg, webui_paths[key]])
+    # --- FIX: Use --data-dir to point to the top-level shared folder ---
+    # This is the correct way to tell ReForge where to find all its data subdirectories.
+    final_args.extend(['--data-dir', str(SHARED_MODEL_BASE)])
     # --- END FIX ---
         
     print(f"🚀 Launching {webui_name} with arguments: {' '.join(final_args)}")

@@ -1,9 +1,6 @@
-# /content/ANXETY/modules/webui_utils.py (Corrected with Relative Imports and Safe JSON Save)
+# /content/ANXETY/modules/webui_utils.py (Final Path Correction for Subdirectories)
 
-# --- CORRECTED RELATIVE IMPORT ---
 from . import json_utils as js
-# --- END OF CORRECTION ---
-
 from pathlib import Path
 import os
 import sys
@@ -39,44 +36,38 @@ def update_current_webui(current_value):
 def _set_webui_paths(ui):
     selected_ui = ui if ui in WEBUI_PATHS else DEFAULT_UI
     
-    # Correctly determine the webui root directory name
-    if selected_ui == 'ReForge':
-        webui_dir_name = 'ReForge'
-    else:
-        webui_dir_name = selected_ui
+    webui_dir_name = 'ReForge' if selected_ui == 'ReForge' else selected_ui
     webui_root = HOME / webui_dir_name
 
     SHARED_MODEL_BASE.mkdir(parents=True, exist_ok=True)
     is_comfy = selected_ui == 'ComfyUI'
     
     paths = WEBUI_PATHS.get(selected_ui, WEBUI_PATHS[DEFAULT_UI])
-    checkpoint_subdir, vae_subdir, lora_subdir, embed_subdir, extension_subdir, upscale_subdir, output_subdir = paths
-
+    
+    # --- FIX: Define paths to the correct subdirectories within the shared base ---
     path_config = {
         'current': ui,
         'webui_path': str(webui_root),
         'model_dir': str(SHARED_MODEL_BASE / ('checkpoints' if is_comfy else 'Stable-diffusion')),
-        'vae_dir': str(SHARED_MODEL_BASE / 'vae'),
+        'vae_dir': str(SHARED_MODEL_BASE / 'VAE'),
         'lora_dir': str(SHARED_MODEL_BASE / ('loras' if is_comfy else 'Lora')),
         'embed_dir': str(SHARED_MODEL_BASE / 'embeddings'),
         'control_dir': str(SHARED_MODEL_BASE / 'ControlNet'),
-        'upscale_dir': str(SHARED_MODEL_BASE / ('upscale_models' if is_comfy else 'ESRGAN')),
+        'upscale_dir': str(SHARED_MODEL_BASE / ('ESRGAN')),
         'adetailer_dir': str(SHARED_MODEL_BASE / 'adetailer'),
         'clip_dir': str(SHARED_MODEL_BASE / 'clip'),
         'unet_dir': str(SHARED_MODEL_BASE / 'unet'),
         'vision_dir': str(SHARED_MODEL_BASE / 'clip_vision'),
         'encoder_dir': str(SHARED_MODEL_BASE / ('text_encoders' if is_comfy else 'text_encoder')),
         'diffusion_dir': str(SHARED_MODEL_BASE / 'diffusion_models'),
-        'extension_dir': str(webui_root / extension_subdir),
-        'output_dir': str(webui_root / output_subdir),
+        'extension_dir': str(webui_root / paths[4]), # extensions are UI-specific
+        'output_dir': str(webui_root / paths[6]),    # outputs are UI-specific
         'config_dir': str(webui_root / ('user/default' if is_comfy else ''))
     }
+    # --- END FIX ---
 
     for key, path_str in path_config.items():
         if '_dir' in key and not any(x in key for x in ['extension', 'output', 'config']):
             Path(path_str).mkdir(parents=True, exist_ok=True)
             
-    # --- FIX ---
-    # Use js.save to safely update the WEBUI key without destroying other keys.
     js.save(str(SETTINGS_PATH), 'WEBUI', path_config)
-    # --- END FIX ---
