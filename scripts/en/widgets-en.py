@@ -3,7 +3,6 @@
 import os
 import sys
 from pathlib import Path
-import json
 
 # Self-aware pathing to find the project root
 try:
@@ -15,25 +14,34 @@ except NameError:
 
 sys.path.append(str(ANXETY_ROOT))
 
-# --- CORRECTED IMPORT ---
 from modules.json_utils import save
-# --- END CORRECTION ---
-
 from modules.widget_factory import WidgetFactory
-from JS.main-widgets import js_script
+
+# --- START OF FIX ---
+# Correctly read the JavaScript file content instead of importing it
+
+js_file_path = ANXETY_ROOT / 'JS' / 'main-widgets.js'
+try:
+    with open(js_file_path, 'r', encoding='utf-8') as f:
+        js_script = f.read()
+except FileNotFoundError:
+    print(f"ERROR: JavaScript file for widgets not found at {js_file_path}")
+    # Assign an empty string to prevent the script from crashing
+    js_script = ""
+# --- END OF FIX ---
 
 # Path to the JSON file where the form data will be saved
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 
 # Environment setup
+# Determine root_dir based on the environment (Colab vs. local/other)
+env_root_dir = str(ANXETY_ROOT.parent) if 'COLAB_GPU' in os.environ else str(Path.home())
 env_data = {
-    'platform': os.environ.get('COLAB_GPU', 'local'),
-    'root_dir': str(ANXETY_ROOT.parent) if 'COLAB_GPU' in os.environ else str(Path.home()),
+    'platform': 'colab' if 'COLAB_GPU' in os.environ else 'local',
+    'root_dir': env_root_dir,
     'sd_models_shared': str(ANXETY_ROOT / 'sd_models_shared')
 }
-# --- CORRECTED SAVE CALL ---
 save(SETTINGS_PATH, 'ENVIRONMENT', env_data)
-# --- END CORRECTION ---
 
 # UI data definition scripts
 data_scripts = [
