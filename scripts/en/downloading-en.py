@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (Definitive Version with FULL Dependencies)
+# /content/ANXETY/scripts/en/downloading-en.py (Definitive Version with NGROK and Corrected Installers)
 
 import os
 import sys
@@ -25,7 +25,7 @@ SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 SCRIPTS_UIs = ANXETY_ROOT / 'scripts' / 'UIs'
 WEBUI_DIR_MAPPING = {'A1111': 'A1111', 'Forge': 'Forge', 'ReForge': 'ReForge', 'Classic': 'Classic', 'ComfyUI': 'ComfyUI', 'SD-UX': 'SD-UX'}
 
-# --- FIX: Comprehensive Dependency Installation ---
+# --- FIX: Comprehensive Dependency Installation with NGROK ---
 def install_dependencies():
     """Installs all required command-line tools if they haven't been installed yet."""
     if js.key_exists(SETTINGS_PATH, 'ENVIRONMENT.dependencies_installed'):
@@ -39,15 +39,23 @@ def install_dependencies():
         'aria2': "apt-get -y install -qq aria2",
         'localtunnel': "npm install -g localtunnel",
         'cloudflared': "wget -qO /usr/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x /usr/bin/cloudflared",
-        'zrok': "wget -qO zrok.tar.gz https://github.com/openziti/zrok/releases/download/v0.4.23/zrok_0.4.23_linux_amd64.tar.gz && tar -xzf zrok.tar.gz -C /usr/bin && rm -f zrok.tar.gz"
+        'ngrok': "wget -qO ngrok.tgz https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz && tar -xzf ngrok.tgz -C /usr/bin && rm -f ngrok.tgz"
     }
+    
+    # Use a clean environment for apt-get to avoid conflicts
+    env = os.environ.copy()
+    env['DEBIAN_FRONTEND'] = 'noninteractive'
     
     for package, command in install_lib.items():
         print(f"  - Installing {package}...")
         try:
-            subprocess.run(shlex.split(command), check=True, capture_output=True, text=True)
-        except Exception as e:
+            # Use shell=True for commands with piping/redirection, and pass the clean environment
+            subprocess.run(command, shell=True, check=True, capture_output=True, text=True, env=env)
+        except subprocess.CalledProcessError as e:
             print(f"  - ❌ Failed to install {package}: {e.stderr}", file=sys.stderr)
+        except Exception as e:
+            print(f"  - ❌ An unexpected error occurred while installing {package}: {str(e)}", file=sys.stderr)
+
 
     js.save(str(SETTINGS_PATH), 'ENVIRONMENT.dependencies_installed', True)
     print("✅ All dependencies installed successfully!")
