@@ -82,7 +82,7 @@ async def download_file(session, url, path):
 
 async def download_all_files(fork_repo, branch):
     base_url = f"https://raw.githubusercontent.com/{fork_repo}/{branch}"
-    # --- FIX: Added CSS and JS files to the download list ---
+    # --- FIX: Added the missing __season.py module ---
     files_to_download = {
         'modules/Manager.py': 'modules/Manager.py', 'modules/CivitaiAPI.py': 'modules/CivitaiAPI.py',
         'modules/json_utils.py': 'modules/json_utils.py', 'modules/webui_utils.py': 'modules/webui_utils.py',
