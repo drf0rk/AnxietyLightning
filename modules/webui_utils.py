@@ -1,4 +1,4 @@
-# ~ WebUI Utils Module | by ANXETY ~ (Final Correction for Missing UI Paths)
+# ~ WebUI Utils Module | by ANXETY ~ (Final Correction for TypeError)
 
 import json_utils as js
 from pathlib import Path
@@ -25,8 +25,7 @@ SCR_PATH = HOME / 'ANXETY'
 SETTINGS_PATH = SCR_PATH / 'settings.json'
 SHARED_MODEL_BASE = HOME / 'sd_models_shared'
 
-# --- THE FIX IS HERE ---
-# Added missing keys for Forge, ReForge, and SD-UX.
+
 WEBUI_PATHS = {
     'A1111': ('Stable-diffusion', 'VAE', 'Lora', 'embeddings', 'extensions', 'ESRGAN', 'outputs'),
     'ComfyUI': ('checkpoints', 'vae', 'loras', 'embeddings', 'custom_nodes', 'upscale_models', 'output'),
@@ -79,8 +78,13 @@ def _set_webui_paths(ui):
         if '_dir' in key and not any(x in key for x in ['extension', 'output', 'config']):
             Path(path_str).mkdir(parents=True, exist_ok=True)
             
-    # Safely update the settings file
-    all_settings = js.read(SETTINGS_PATH, default={})
+    # --- THIS IS THE FIX ---
+    # The js.read function is called with only one argument, as it doesn't accept keyword arguments.
+    # It already returns an empty dict {} by default if the file is missing or empty.
+    all_settings = js.read(SETTINGS_PATH)
+    if not isinstance(all_settings, dict): # Safety check
+        all_settings = {}
+        
     all_settings['WEBUI'] = path_config
     with open(SETTINGS_PATH, 'w') as f:
         json.dump(all_settings, f, indent=4)
