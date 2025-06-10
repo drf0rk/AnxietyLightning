@@ -1,4 +1,4 @@
-# /content/ANXETY/modules/webui_utils.py (Final Path Correction for Subdirectories)
+# /content/ANXETY/modules/webui_utils.py (Final Path Correction for ReForge's Nested Structure)
 
 from . import json_utils as js
 from pathlib import Path
@@ -44,24 +44,26 @@ def _set_webui_paths(ui):
     
     paths = WEBUI_PATHS.get(selected_ui, WEBUI_PATHS[DEFAULT_UI])
     
-    # --- FIX: Define paths to the correct subdirectories within the shared base ---
+    # --- FINAL FIX: Construct the nested paths that ReForge and other UIs expect inside the shared folder ---
+    models_root = SHARED_MODEL_BASE / 'models'
+    
     path_config = {
         'current': ui,
         'webui_path': str(webui_root),
-        'model_dir': str(SHARED_MODEL_BASE / ('checkpoints' if is_comfy else 'Stable-diffusion')),
-        'vae_dir': str(SHARED_MODEL_BASE / 'VAE'),
-        'lora_dir': str(SHARED_MODEL_BASE / ('loras' if is_comfy else 'Lora')),
-        'embed_dir': str(SHARED_MODEL_BASE / 'embeddings'),
-        'control_dir': str(SHARED_MODEL_BASE / 'ControlNet'),
-        'upscale_dir': str(SHARED_MODEL_BASE / ('ESRGAN')),
-        'adetailer_dir': str(SHARED_MODEL_BASE / 'adetailer'),
-        'clip_dir': str(SHARED_MODEL_BASE / 'clip'),
-        'unet_dir': str(SHARED_MODEL_BASE / 'unet'),
-        'vision_dir': str(SHARED_MODEL_BASE / 'clip_vision'),
-        'encoder_dir': str(SHARED_MODEL_BASE / ('text_encoders' if is_comfy else 'text_encoder')),
-        'diffusion_dir': str(SHARED_MODEL_BASE / 'diffusion_models'),
-        'extension_dir': str(webui_root / paths[4]), # extensions are UI-specific
-        'output_dir': str(webui_root / paths[6]),    # outputs are UI-specific
+        'model_dir': str(models_root / ('checkpoints' if is_comfy else 'Stable-diffusion')),
+        'vae_dir': str(models_root / 'VAE'),
+        'lora_dir': str(models_root / ('loras' if is_comfy else 'Lora')),
+        'embed_dir': str(models_root / 'embeddings'),
+        'control_dir': str(models_root / 'ControlNet'),
+        'upscale_dir': str(models_root / 'ESRGAN'),
+        'adetailer_dir': str(models_root / 'adetailer'),
+        'clip_dir': str(models_root / 'clip'),
+        'unet_dir': str(models_root / 'unet'),
+        'vision_dir': str(models_root / 'clip_vision'),
+        'encoder_dir': str(models_root / 'text_encoders'),
+        'diffusion_dir': str(models_root / 'diffusion_models'),
+        'extension_dir': str(webui_root / paths[4]),
+        'output_dir': str(webui_root / paths[6]),
         'config_dir': str(webui_root / ('user/default' if is_comfy else ''))
     }
     # --- END FIX ---
