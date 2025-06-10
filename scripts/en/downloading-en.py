@@ -7,17 +7,15 @@ from pathlib import Path
 
 # Self-aware pathing
 try:
-    # --- CORRECTED LINE ---
-    # From .../scripts/en/ the root is 2 levels up
     ANXETY_ROOT = Path(__file__).resolve().parents[2]
-    # --- END CORRECTION ---
 except NameError:
-    # Fallback for environments where __file__ is not defined
     ANXETY_ROOT = Path.cwd()
 
 sys.path.append(str(ANXETY_ROOT))
 
-from modules.json_utils import JsonUtils
+# --- CORRECTED IMPORT ---
+from modules.json_utils import read
+# --- END CORRECTION ---
 from modules.Manager import Manager
 
 WEBUI_DIR_MAPPING = {
@@ -33,40 +31,27 @@ SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 SCRIPTS_UIs = ANXETY_ROOT / 'scripts' / 'UIs'
 DOWNLOAD_RESULT_PY = ANXETY_ROOT / 'scripts' / 'download-result.py'
 
-js = JsonUtils()
-
 def get_webui_path():
-    """Reads settings and returns the constructed path to the WebUI."""
     try:
-        widgets_settings = js.read(SETTINGS_PATH, 'WIDGETS')
-        env_settings = js.read(SETTINGS_PATH, 'ENVIRONMENT')
+        # --- CORRECTED READ CALLS ---
+        widgets_settings = read(SETTINGS_PATH, 'WIDGETS')
+        env_settings = read(SETTINGS_PATH, 'ENVIRONMENT')
+        # --- END CORRECTION ---
 
-        if not widgets_settings or not env_settings:
-            print("❌ Error reading WIDGETS or ENVIRONMENT from settings.json")
-            return None, None
-
+        if not widgets_settings or not env_settings: return None, None
         webui_name = widgets_settings.get('WebUI')
         root_dir = Path(env_settings.get('root_dir', ''))
-        
-        if not webui_name or not root_dir.is_dir():
-            print(f"❌ Invalid WebUI name ('{webui_name}') or root directory ('{root_dir}').")
-            return None, None
-        
+        if not webui_name or not root_dir.is_dir(): return None, None
         webui_dir_name = WEBUI_DIR_MAPPING.get(webui_name, webui_name)
-        
         return root_dir / webui_dir_name, webui_name
-
     except Exception as e:
         print(f"❌ An error occurred in get_webui_path: {e}")
         return None, None
 
 def main():
-    """Main execution function."""
     print(f"✅ Attempting to run script from: {__file__}")
-
     WEBUI_PATH, webui_name = get_webui_path()
-    if not WEBUI_PATH:
-        return
+    if not WEBUI_PATH: return
 
     if not WEBUI_PATH.exists():
         print(f"⌚ Unpacking Stable Diffusion | WEBUI: {webui_name}...")
@@ -79,7 +64,10 @@ def main():
     else:
         print(f"🔧 Current WebUI: {webui_name} | Already installed.")
 
-    settings = js.read(SETTINGS_PATH, 'WIDGETS')
+    # --- CORRECTED READ CALL ---
+    settings = read(SETTINGS_PATH, 'WIDGETS')
+    # --- END CORRECTION ---
+    
     latest_webui = settings.get('update_webui', False)
     latest_extensions = settings.get('update_extensions', False)
     
