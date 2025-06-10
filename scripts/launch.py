@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (Final Version with Real-Time Output Streaming)
+# /content/ANXETY/scripts/launch.py (Corrected Final Version)
 
 import os
 import sys
@@ -70,9 +70,13 @@ def main(args):
     print(f"🚀 Launching {webui_name} with arguments: {' '.join(final_args)}")
     print("-" * 60)
 
-    command = [sys.executable, str(launch_script_path)] + final_args
-    
-    # --- FINAL FIX: Use Popen with a manual loop to force real-time output streaming ---
+    # --- FIX: Explicitly use the VENV's Python executable ---
+    python_executable = HOME / 'venv' / 'bin' / 'python'
+    if not python_executable.exists():
+        print(f"❌ FATAL: VENV Python not found at {python_executable}"); sys.exit(1)
+    command = [str(python_executable), str(launch_script_path)] + final_args
+
+    # --- Use Popen with a manual loop to force real-time output streaming ---
     process = subprocess.Popen(
         command, 
         stdout=subprocess.PIPE, 
@@ -92,7 +96,6 @@ def main(args):
 
     if return_code:
         print(f"\n❌ WebUI process exited with error code {return_code}.")
-    # --- END FIX ---
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="AnxietyLightning Launcher")
