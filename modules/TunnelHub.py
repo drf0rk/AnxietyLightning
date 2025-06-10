@@ -1,3 +1,5 @@
+# File: /content/ANXETY/modules/TunnelHub.py
+
 """
 Modified script for creating tunnels.
 Originated from: https://raw.githubusercontent.com/cupang-afk/subprocess-tunnel/refs/heads/master/src/tunnel.py
@@ -154,19 +156,37 @@ class Tunnel:
 
         return logger
 
+    # --- START OF PATCH ---
     def is_command_available(self, command: str) -> bool:
-        """Check if the specified command is available in the system PATH."""
-        return any(
-            os.access(os.path.join(path, command), os.X_OK)
-            for path in os.environ['PATH'].split(os.pathsep)
-        )
+        """Check if the specified command is available in the VENV path or system PATH."""
+        # Define the explicit path to the VENV's bin directory.
+        # This is a targeted fix for environments like Colab where PATH might be incomplete.
+        venv_bin_path = '/content/venv/bin'
+
+        # First, check the explicit VENV path for the command.
+        if os.access(os.path.join(venv_bin_path, command), os.X_OK):
+            self.logger.debug(f"Command '{command}' found in VENV path: {venv_bin_path}")
+            return True
+
+        # If not found in VENV, fall back to checking the system PATH.
+        # Use os.environ.get to prevent errors if PATH is not set.
+        system_path = os.environ.get('PATH', '')
+        for path in system_path.split(os.pathsep):
+            if os.access(os.path.join(path, command), os.X_OK):
+                self.logger.debug(f"Command '{command}' found in system PATH: {path}")
+                return True
+        
+        # If the command is not found in either location, log a warning and return False.
+        self.logger.warning(f"Command '{command}' not found in VENV ('{venv_bin_path}') or system PATH.")
+        return False
+    # --- END OF PATCH ---
 
     def add_tunnel(self, *, command: str, pattern: StrOrRegexPattern, name: str,
                  note: str = None, callback: Callable[[str, Optional[str], Optional[str]], None] = None) -> None:
         """Add a new tunnel with the specified command, pattern, name, and optional note and callback."""
         cmd_name = command.split()[0]
         if not self.is_command_available(cmd_name):
-            self.logger.warning(f"Skipping {name} - {cmd_name} not installed")
+            # The warning is now logged inside is_command_available, so we can just return.
             return
 
         if isinstance(pattern, str):
