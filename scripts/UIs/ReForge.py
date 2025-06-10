@@ -7,19 +7,21 @@ import subprocess
 
 # Self-aware pathing to find the project root
 try:
-    # Assumes this script is in /content/ANXETY/scripts/UIs
-    # Moves up 3 levels to get to /content
+    # From .../scripts/UIs/ the root is 2 levels up
     ANXETY_ROOT = Path(__file__).resolve().parents[2]
 except NameError:
     # Fallback for interactive environments
     ANXETY_ROOT = Path.cwd().parent 
 
-sys.path.append(str(ANXETY_ROOT / 'ANXETY'))
+# --- CORRECTED LINE ---
+# Correctly add the root to the system path
+sys.path.append(str(ANXETY_ROOT))
+# --- END CORRECTION ---
 
 from modules.json_utils import JsonUtils
 
-# Correctly locate settings.json
-SETTINGS_PATH = ANXETY_ROOT / 'ANXETY' / 'settings.json'
+# Correctly locate settings.json within the project structure
+SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 js = JsonUtils()
 
 def get_root_dir():
@@ -36,7 +38,6 @@ def get_root_dir():
             print("Error: 'root_dir' not found in settings.json.")
             return None
             
-        # Replace placeholders like {HOME} if they exist, although current logic avoids this
         home_path = str(Path.home())
         root_dir = root_dir.replace('{HOME}', home_path)
         
@@ -49,18 +50,12 @@ def get_root_dir():
 # Fetch the root directory
 root_dir = get_root_dir()
 
-# Only proceed if root_dir was successfully fetched
 if root_dir:
-    # Define the installation directory for the web UI
     install_dir = os.path.join(root_dir, 'stable-diffusion-webui-reforge')
-
-    # URL of the Git repository to clone
     git_repo_url = 'https://github.com/huchenlei/stable-diffusion-webui-reforge.git'
 
-    # Check if the directory already exists
     if not os.path.exists(install_dir):
         print(f'🚀 Unpacking ReForge...')
-        # Clone the repository if the directory does not exist
         subprocess.run(['git', 'clone', '-b', 'master', '--depth', '1', git_repo_url, install_dir], check=True)
         print('✅ Unpacking ReForge Complete!')
     else:

@@ -7,8 +7,12 @@ from pathlib import Path
 
 # Self-aware pathing
 try:
-    ANXETY_ROOT = Path(__file__).resolve().parents[1]
+    # --- CORRECTED LINE ---
+    # From .../scripts/en/ the root is 2 levels up
+    ANXETY_ROOT = Path(__file__).resolve().parents[2]
+    # --- END CORRECTION ---
 except NameError:
+    # Fallback for environments where __file__ is not defined
     ANXETY_ROOT = Path.cwd()
 
 sys.path.append(str(ANXETY_ROOT))
@@ -16,8 +20,6 @@ sys.path.append(str(ANXETY_ROOT))
 from modules.json_utils import JsonUtils
 from modules.Manager import Manager
 
-# --- START OF FIX ---
-# This mapping translates dropdown names to actual directory names
 WEBUI_DIR_MAPPING = {
     'A1111': 'stable-diffusion-webui',
     'Forge': 'stable-diffusion-webui-forge',
@@ -26,7 +28,6 @@ WEBUI_DIR_MAPPING = {
     'ComfyUI': 'ComfyUI',
     'SD-UX': 'stable-diffusion-webui-ux'
 }
-# --- END OF FIX ---
 
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 SCRIPTS_UIs = ANXETY_ROOT / 'scripts' / 'UIs'
@@ -51,11 +52,8 @@ def get_webui_path():
             print(f"❌ Invalid WebUI name ('{webui_name}') or root directory ('{root_dir}').")
             return None, None
         
-        # --- MODIFIED LINE ---
-        # Use the mapping to get the correct directory name
         webui_dir_name = WEBUI_DIR_MAPPING.get(webui_name, webui_name)
-        # --- END MODIFICATION ---
-
+        
         return root_dir / webui_dir_name, webui_name
 
     except Exception as e:
@@ -68,7 +66,7 @@ def main():
 
     WEBUI_PATH, webui_name = get_webui_path()
     if not WEBUI_PATH:
-        return # Exit if path could not be determined
+        return
 
     if not WEBUI_PATH.exists():
         print(f"⌚ Unpacking Stable Diffusion | WEBUI: {webui_name}...")
