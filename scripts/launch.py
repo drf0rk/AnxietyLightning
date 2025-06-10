@@ -1,12 +1,29 @@
 # File: /content/ANXETY/scripts/launch.py
 
+import os
+import sys
+from pathlib import Path
+
+# --- START OF PATCH: Self-Aware Pathing ---
+# This block ensures that the script can find sibling directories like 'modules'.
+try:
+    # When run from /content/ANXETY/scripts/, the project root is one level up.
+    ANXETY_ROOT = Path(__file__).resolve().parents[1]
+except NameError:
+    # Fallback for environments where __file__ is not defined.
+    ANXETY_ROOT = Path.cwd()
+
+# Add the 'modules' directory to the Python path so imports work correctly.
+if str(ANXETY_ROOT / 'modules') not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
+# --- END OF PATCH ---
+
 from TunnelHub import Tunnel    # Tunneling
 import json_utils as js         # JSON
 
 from IPython.display import clear_output
 from IPython import get_ipython
 from datetime import timedelta
-from pathlib import Path
 import subprocess
 import requests
 import argparse
@@ -16,8 +33,6 @@ import shlex
 import time
 import json
 import yaml
-import sys
-import os
 import re
 
 
