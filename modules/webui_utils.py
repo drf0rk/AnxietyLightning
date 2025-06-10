@@ -1,17 +1,22 @@
-# ~ WebUI Utils Module | by ANXETY ~ (Final Correction for 'current' key)
+# ~ WebUI Utils Module | by ANXETY ~ (Final Correction for Missing UI Paths)
 
 import json_utils as js
 from pathlib import Path
 import os
 import sys
+import json
 
 def _get_project_home():
     """Determines the correct project HOME based on the runtime environment."""
-    if 'google.colab' in sys.modules: return Path('/content')
-    if os.path.exists('/kaggle'): return Path('/kaggle/working')
+    if 'google.colab' in sys.modules:
+        return Path('/content')
+    if os.path.exists('/kaggle'):
+        return Path('/kaggle/working')
     if os.environ.get('LIGHTNING_AI') or os.path.exists('/teamspace'):
         base_path = Path('/teamspace/studios/this_studio')
-        return base_path if base_path.exists() else Path.home() / 'workspace'
+        if not base_path.exists():
+            base_path = Path.home() / 'workspace'
+        return base_path
     return Path.cwd()
 
 # Define paths dynamically and correctly when the module is loaded
@@ -20,13 +25,13 @@ SCR_PATH = HOME / 'ANXETY'
 SETTINGS_PATH = SCR_PATH / 'settings.json'
 SHARED_MODEL_BASE = HOME / 'sd_models_shared'
 
-
-# --- The rest of the functions will now use the correct paths ---
-
+# --- THE FIX IS HERE ---
+# Added missing keys for Forge, ReForge, and SD-UX.
 WEBUI_PATHS = {
     'A1111': ('Stable-diffusion', 'VAE', 'Lora', 'embeddings', 'extensions', 'ESRGAN', 'outputs'),
     'ComfyUI': ('checkpoints', 'vae', 'loras', 'embeddings', 'custom_nodes', 'upscale_models', 'output'),
     'Classic': ('Stable-diffusion', 'VAE', 'Lora', 'embeddings', 'extensions', 'ESRGAN', 'output'),
+    'Forge': ('Stable-diffusion', 'VAE', 'Lora', 'embeddings', 'extensions', 'ESRGAN', 'outputs'),
     'ReForge': ('Stable-diffusion', 'VAE', 'Lora', 'embeddings', 'extensions', 'ESRGAN', 'outputs'),
     'SD-UX': ('Stable-diffusion', 'VAE', 'Lora', 'embeddings', 'extensions', 'ESRGAN', 'outputs')
 }
@@ -34,7 +39,6 @@ DEFAULT_UI = 'Forge'
 
 def update_current_webui(current_value):
     """Update the current WebUI value and save settings."""
-    # This function now simply calls _set_webui_paths, which handles all logic.
     _set_webui_paths(current_value)
 
 def _set_webui_paths(ui):
@@ -50,9 +54,8 @@ def _set_webui_paths(ui):
     paths = WEBUI_PATHS.get(selected_ui, WEBUI_PATHS[DEFAULT_UI])
     checkpoint_subdir, vae_subdir, lora_subdir, embed_subdir, extension_subdir, upscale_subdir, output_subdir = paths
 
-    # THE FIX: Add 'current': ui to the dictionary that gets saved.
     path_config = {
-        'current': ui, # <-- THIS LINE IS THE FIX
+        'current': ui,
         'webui_path': str(webui_root),
         'model_dir': str(models_root / ('checkpoints' if is_comfy else 'Stable-diffusion')),
         'vae_dir': str(models_root / 'vae'),
@@ -71,8 +74,12 @@ def _set_webui_paths(ui):
         'config_dir': str(webui_root / ('user/default' if is_comfy else ''))
     }
 
-    # Save the complete WEBUI object to settings.
-    # We read the whole file and update just the WEBUI key to be safe.
+    # Ensure all shared directories exist
+    for key, path_str in path_config.items():
+        if '_dir' in key and not any(x in key for x in ['extension', 'output', 'config']):
+            Path(path_str).mkdir(parents=True, exist_ok=True)
+            
+    # Safely update the settings file
     all_settings = js.read(SETTINGS_PATH, default={})
     all_settings['WEBUI'] = path_config
     with open(SETTINGS_PATH, 'w') as f:
