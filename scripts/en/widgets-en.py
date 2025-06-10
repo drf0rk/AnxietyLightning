@@ -1,4 +1,4 @@
-# ~ widgets.py | by ANXETY ~ (FINAL POLISHED VERSION)
+# ~ widgets.py | by ANXETY ~ (FINAL POLISHED VERSION v2)
 
 from IPython.display import display, HTML
 from widget_factory import WidgetFactory
@@ -61,7 +61,6 @@ def read_lora_keys_by_type(file_path):
            [f"{i+1}. {name}" for i, name in enumerate(sdxl_keys)]
 
 # --- Widget Creation ---
-# Data lists
 model_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_model_data')
 XL_model_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'sdxl_models_data')
 vae_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_vae_data', ['none', 'ALL'])
@@ -70,7 +69,6 @@ cnet_list = read_data_keys(SCRIPTS / '_models-data.py', 'controlnet_list', ['non
 XL_cnet_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'controlnet_list', ['none', 'ALL'])
 sd15_lora_list, sdxl_lora_list = read_lora_keys_by_type(SCRIPTS / '_loras-data.py')
 
-# Main Widgets
 XL_models_widget = factory.create_checkbox(description='XL', value=False, class_names='sdxl')
 model_widget = factory.create_select_multiple(description='Models:', options=model_list)
 inpainting_model_widget = factory.create_checkbox(description='Inpainting', value=False, class_names='inpaint')
@@ -78,14 +76,11 @@ vae_widget = factory.create_select_multiple(description='VAE:', options=vae_list
 lora_widget = factory.create_select_multiple(description='LoRA:', options=sd15_lora_list)
 controlnet_widget = factory.create_select_multiple(description='ControlNet:', options=cnet_list)
 
-# WebUI Widgets and Download Manager...
 webui_options = ['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX']
 webui_selection = {
     'A1111': '--xformers --no-half-vae --enable-insecure-extension-access',
-    'Forge': '--xformers --forge-ref-a',
-    'ReForge': '--xformers --reforge-ref-a',
-    'ComfyUI': '--windows-standalone-build',
-    'Classic': '', 'SD-UX': ''
+    'Forge': '--xformers --forge-ref-a', 'ReForge': '--xformers --reforge-ref-a',
+    'ComfyUI': '--windows-standalone-build', 'Classic': '', 'SD-UX': ''
 }
 latest_webui_widget = factory.create_checkbox('Update WebUI', False)
 latest_extensions_widget = factory.create_checkbox('Update Extensions', False)
@@ -114,9 +109,13 @@ def on_xl_change(change):
 def on_webui_change(change):
     commandline_arguments_widget.value = webui_selection.get(change.new, '')
 
-def on_dm_toggle(change):
+def on_dm_toggle(change): # <-- START OF FINAL FIX
+    """Toggles visibility of the downloader using CSS classes."""
     is_enabled = change.new
-    download_container.layout.display = '' if is_enabled else 'none'
+    if is_enabled:
+        download_container.remove_class('hidden')
+    else:
+        download_container.add_class('hidden') #<-- END OF FINAL FIX
 
 # --- Settings Save/Load ---
 SETTINGS_KEYS = [
@@ -126,11 +125,7 @@ SETTINGS_KEYS = [
     'custom_file_urls'
 ]
 def save_settings():
-    widget_values = {}
-    for key in SETTINGS_KEYS:
-        widget_name = f"{key}_widget"
-        if widget_name in globals():
-            widget_values[key] = globals()[widget_name].value
+    widget_values = {key: globals()[f"{key}_widget"].value for key in SETTINGS_KEYS}
     js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
     js.save(str(SETTINGS_PATH), 'mountGDrive', getattr(GDrive_button, 'toggle', False))
     update_current_webui(change_webui_widget.value)
@@ -144,15 +139,10 @@ def load_settings():
     GDrive_button.toggle = js.read(str(SETTINGS_PATH), 'mountGDrive', False)
     GDrive_button.add_class('active') if GDrive_button.toggle else GDrive_button.remove_class('active')
 
-# --- START OF FINAL FIX ---
 def on_save_click(button):
-    """Saves settings and then closes the entire UI elegantly."""
     save_settings()
-    # Define all top-level components that need to be closed
     all_ui_components = [top_container, models_container, download_container, GDrive_button, save_button]
-    # Use the factory's close method with the 'hide' class for the animation
     factory.close(all_ui_components, class_names='hide')
-# --- END OF FINAL FIX ---
 
 # --- Display Logic ---
 factory.load_css(widgets_css)
