@@ -1,4 +1,4 @@
-# /content/ANXETY/modules/webui_utils.py (Corrected with Relative Imports)
+# /content/ANXETY/modules/webui_utils.py (Corrected with Relative Imports and Safe JSON Save)
 
 # --- CORRECTED RELATIVE IMPORT ---
 from . import json_utils as js
@@ -76,9 +76,7 @@ def _set_webui_paths(ui):
         if '_dir' in key and not any(x in key for x in ['extension', 'output', 'config']):
             Path(path_str).mkdir(parents=True, exist_ok=True)
             
-    all_settings = js.read(SETTINGS_PATH)
-    if not isinstance(all_settings, dict): all_settings = {}
-        
-    all_settings['WEBUI'] = path_config
-    with open(SETTINGS_PATH, 'w') as f:
-        json.dump(all_settings, f, indent=4)
+    # --- FIX ---
+    # Use js.save to safely update the WEBUI key without destroying other keys.
+    js.save(str(SETTINGS_PATH), 'WEBUI', path_config)
+    # --- END FIX ---

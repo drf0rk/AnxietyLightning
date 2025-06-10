@@ -82,7 +82,7 @@ async def download_file(session, url, path):
 
 async def download_all_files(fork_repo, branch):
     base_url = f"https://raw.githubusercontent.com/{fork_repo}/{branch}"
-    # Expanded list to ensure all modules and UI scripts are present
+    # --- FIX: Added CSS and JS files to the download list ---
     files_to_download = {
         'modules/Manager.py': 'modules/Manager.py', 'modules/CivitaiAPI.py': 'modules/CivitaiAPI.py',
         'modules/json_utils.py': 'modules/json_utils.py', 'modules/webui_utils.py': 'modules/webui_utils.py',
@@ -93,7 +93,10 @@ async def download_all_files(fork_repo, branch):
         'scripts/en/widgets-en.py': 'scripts/en/widgets-en.py', 'scripts/en/downloading-en.py': 'scripts/en/downloading-en.py',
         'scripts/launch.py': 'scripts/launch.py', 'scripts/_models-data.py': 'scripts/_models-data.py',
         'scripts/_xl-models-data.py': 'scripts/_xl-models-data.py', 'scripts/_loras-data.py': 'scripts/_loras-data.py',
+        'CSS/main-widgets.css': 'CSS/main-widgets.css', 'JS/main-widgets.js': 'JS/main-widgets.js',
+        'CSS/auto-cleaner.css': 'CSS/auto-cleaner.css', 'CSS/download-result.css': 'CSS/download-result.css'
     }
+    # --- END FIX ---
     
     async with aiohttp.ClientSession() as session:
         tasks = [download_file(session, f"{base_url}/{remote}", ANXETY_ROOT / local) for remote, local in files_to_download.items()]
@@ -113,11 +116,8 @@ def main():
     env_data['ENVIRONMENT']['branch'] = args.branch
     save_json(SETTINGS_PATH, env_data)
     
-    # --- THIS IS THE FIX ---
-    # We get the existing loop from the notebook and run our async function in it.
     loop = asyncio.get_event_loop()
     loop.run_until_complete(download_all_files(args.fork, args.branch))
-    # --- END OF FIX ---
 
     print("✅ Environment setup complete.")
     print(f"✔️ Project Root: {HOME}")
