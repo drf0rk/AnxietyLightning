@@ -1,4 +1,4 @@
-# ~ widgets.py | by ANXETY ~ (All-in-One Fix v4)
+# ~ widgets.py | by ANXETY ~ (FINAL POLISHED VERSION)
 
 from IPython.display import display, HTML
 from widget_factory import WidgetFactory
@@ -32,7 +32,7 @@ ENV_NAME = js.read(str(SETTINGS_PATH), 'ENVIRONMENT.env_name', 'local')
 # --- Helper Functions ---
 factory = WidgetFactory()
 
-class MockChange: # <--- FIX: Helper class to solve the AttributeError
+class MockChange:
     def __init__(self, value):
         self.new = value
 
@@ -72,16 +72,15 @@ sd15_lora_list, sdxl_lora_list = read_lora_keys_by_type(SCRIPTS / '_loras-data.p
 
 # Main Widgets
 XL_models_widget = factory.create_checkbox(description='XL', value=False, class_names='sdxl')
-model_widget = factory.create_select_multiple(description='Models:', options=model_list) # <-- FIX: Changed to SelectMultiple
+model_widget = factory.create_select_multiple(description='Models:', options=model_list)
 inpainting_model_widget = factory.create_checkbox(description='Inpainting', value=False, class_names='inpaint')
 vae_widget = factory.create_select_multiple(description='VAE:', options=vae_list)
 lora_widget = factory.create_select_multiple(description='LoRA:', options=sd15_lora_list)
-embedding_widget = factory.create_textarea(description='Embeddings:', placeholder='Enter Embedding URLs, one per line')
 controlnet_widget = factory.create_select_multiple(description='ControlNet:', options=cnet_list)
 
 # WebUI Widgets and Download Manager...
-webui_options = ['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX'] # <-- FIX: Expanded list
-webui_selection = { # <-- FIX: Added default arguments
+webui_options = ['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX']
+webui_selection = {
     'A1111': '--xformers --no-half-vae --enable-insecure-extension-access',
     'Forge': '--xformers --forge-ref-a',
     'ReForge': '--xformers --reforge-ref-a',
@@ -127,7 +126,11 @@ SETTINGS_KEYS = [
     'custom_file_urls'
 ]
 def save_settings():
-    widget_values = {key: globals()[f"{key}_widget"].value for key in SETTINGS_KEYS}
+    widget_values = {}
+    for key in SETTINGS_KEYS:
+        widget_name = f"{key}_widget"
+        if widget_name in globals():
+            widget_values[key] = globals()[widget_name].value
     js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
     js.save(str(SETTINGS_PATH), 'mountGDrive', getattr(GDrive_button, 'toggle', False))
     update_current_webui(change_webui_widget.value)
@@ -141,8 +144,15 @@ def load_settings():
     GDrive_button.toggle = js.read(str(SETTINGS_PATH), 'mountGDrive', False)
     GDrive_button.add_class('active') if GDrive_button.toggle else GDrive_button.remove_class('active')
 
+# --- START OF FINAL FIX ---
 def on_save_click(button):
+    """Saves settings and then closes the entire UI elegantly."""
     save_settings()
+    # Define all top-level components that need to be closed
+    all_ui_components = [top_container, models_container, download_container, GDrive_button, save_button]
+    # Use the factory's close method with the 'hide' class for the animation
+    factory.close(all_ui_components, class_names='hide')
+# --- END OF FINAL FIX ---
 
 # --- Display Logic ---
 factory.load_css(widgets_css)
@@ -155,7 +165,7 @@ download_manager_widget.observe(on_dm_toggle, names='value')
 webui_box = factory.create_vbox([change_webui_widget, commandline_arguments_widget, factory.create_hbox([latest_webui_widget, latest_extensions_widget])], 'box_webui')
 settings_box = factory.create_vbox([factory.create_html('Settings', 'header'), factory.create_hbox([XL_models_widget, inpainting_model_widget])], 'box_settings')
 top_container = factory.create_hbox([webui_box, settings_box], 'container_webui')
-models_container = factory.create_vbox([model_widget, vae_widget, lora_widget, embedding_widget, controlnet_widget], 'container_models')
+models_container = factory.create_vbox([model_widget, vae_widget, lora_widget, controlnet_widget], 'container_models')
 download_box = factory.create_vbox([factory.create_html('Download Manager', 'header'), factory.create_hbox([download_manager_widget, empowerment_widget]), Model_url_widget, Vae_url_widget, LoRA_url_widget, Embedding_url_widget, Extensions_url_widget, ADetailer_url_widget], 'box_download')
 custom_files_box = factory.create_vbox([factory.create_html('Custom files', 'header'), custom_file_urls_widget], 'box_download')
 download_container = factory.create_hbox([download_box, custom_files_box], 'container_cdl')
@@ -163,7 +173,7 @@ download_container = factory.create_hbox([download_box, custom_files_box], 'cont
 display(top_container, models_container, download_container, GDrive_button, save_button)
 
 load_settings()
-on_dm_toggle(MockChange(download_manager_widget.value)) # <-- FIX: Use MockChange to prevent crash
+on_dm_toggle(MockChange(download_manager_widget.value))
 
 js_content = ""
 if widgets_js.exists():
