@@ -6,10 +6,8 @@ from pathlib import Path
 
 # Self-aware pathing to find the project root
 try:
-    # From .../scripts/en/ the root is 2 levels up
     ANXETY_ROOT = Path(__file__).resolve().parents[2]
 except NameError:
-    # Fallback for environments where __file__ is not defined
     ANXETY_ROOT = Path.cwd()
 
 sys.path.append(str(ANXETY_ROOT))
@@ -51,11 +49,74 @@ for script_path in data_scripts:
     with open(script_path, 'r', encoding='utf-8') as f:
         exec(f.read(), data)
 
-# --- START OF FIX ---
-# 1. Create the factory without any data
+# --- START OF REWRITTEN LOGIC ---
+
+# 1. Create an instance of the factory
 factory = WidgetFactory()
 
-# 2. Pass the data to the methods that require it
-factory.create_webui_widget()
-factory.create_model_widgets(data)  # Pass data here
-factory.create_lora_widgets(data)   # and
+# 2. Build the UI using the available low-level methods
+factory.create_header('<h2>Environment settings</h2>')
+factory.create_dropdown(
+    name='WebUI',
+    options=['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX'],
+    description='Select a Stable Diffusion WebUI:'
+)
+
+factory.create_header('<h2>Models settings</h2>')
+all_models = list(data.get('models', {}).keys()) + list(data.get('xl_models', {}).keys())
+factory.create_dropdown(
+    name='model',
+    options=all_models,
+    description='Select main model:'
+)
+factory.create_select_multiple(
+    name='additional_models',
+    options=all_models,
+    description='Select additional models (optional):'
+)
+
+factory.create_header('<h2>LoRAs settings</h2>')
+factory.create_select_multiple(
+    name='loras',
+    options=list(data.get('loras', {}).keys()),
+    description='Select LoRAs:'
+)
+
+factory.create_header('<h2>Additional settings</h2>')
+factory.create_checkbox(
+    name='update_webui',
+    description='Update WebUI',
+    value=False
+)
+factory.create_checkbox(
+    name='update_extensions',
+    description='Update Extensions',
+    value=False
+)
+factory.create_checkbox(
+    name='download_manager',
+    description='Run Download Manager',
+    value=True
+)
+
+factory.create_header('<h2>Empowerment mode</h2>')
+factory.create_textarea(
+    name='empowerment_mode',
+    placeholder='Enter download commands here...',
+    description='Empowerment mode for advanced downloading:'
+)
+
+factory.create_header('<h2>Seasonal themes</h2>')
+factory.create_dropdown(
+    name='season',
+    options=['None', 'Christmas', 'Halloween'],
+    description='Select a theme:'
+)
+
+# 3. Display the generated form
+factory.display()
+
+# 4. Load the necessary JavaScript
+factory.load_js(js_script)
+
+# --- END OF REWRITTEN LOGIC ---
