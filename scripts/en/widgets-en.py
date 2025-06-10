@@ -1,10 +1,10 @@
-# /content/ANXETY/scripts/en/widgets-en.py (Final Version with Correct User-Provided Arguments)
+# /content/ANXETY/scripts/en/widgets-en.py (Final Stable Arguments)
 
 import os
 import sys
 from pathlib import Path
 
-# --- Self-aware pathing to fix ModuleNotFoundError ---
+# --- Self-aware pathing ---
 try:
     ANXETY_ROOT = Path(__file__).resolve().parents[2]
 except NameError:
@@ -21,7 +21,7 @@ import modules.json_utils as js
 import ipywidgets as widgets
 from ipywidgets import Layout
 
-# --- Constants and Platform-Aware Pathing ---
+# --- Constants and Paths ---
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 SCRIPTS = ANXETY_ROOT / 'scripts'
 CSS = ANXETY_ROOT / 'CSS'
@@ -29,7 +29,6 @@ JS = ANXETY_ROOT / 'JS'
 widgets_css = CSS / 'main-widgets.css'
 widgets_js = JS / 'main-widgets.js'
 
-# --- Helper Functions ---
 factory = WidgetFactory()
 
 def read_data_keys(file_path, data_key_in_file, prefixes=['none']):
@@ -51,7 +50,6 @@ def read_lora_keys_by_type(file_path):
     return [f"{i+1}. {name}" for i, name in enumerate(sd15_keys)], \
            [f"{i+1}. {name}" for i, name in enumerate(sdxl_keys)]
 
-# --- Widget Creation ---
 model_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_model_data')
 XL_model_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'sdxl_models_data')
 vae_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_vae_data', ['none', 'ALL'])
@@ -68,13 +66,13 @@ lora_widget = factory.create_select_multiple(description='LoRA:', options=sd15_l
 controlnet_widget = factory.create_select_multiple(description='ControlNet:', options=cnet_list)
 
 webui_options = ['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX']
-# --- FINAL FIX: Using the user-provided dictionary as the source of truth ---
+# --- FIX: Use stable arguments for ReForge, avoiding xformers ---
 webui_selection = {
-    'A1111':   "--xformers --no-half-vae",
+    'A1111':   "--xformers --no-half-vae --enable-insecure-extension-access",
     'ComfyUI': "--use-sage-attention --dont-print-server",
-    'Forge':   "--disable-xformers --opt-sdp-attention --cuda-stream --pin-shared-memory",
+    'Forge':   "--xformers --forge-ref-a",
     'Classic': "--persistent-patches --cuda-stream --pin-shared-memory",
-    'ReForge': "--xformers --reinstall-xformers --cuda-stream --pin-shared-memory",
+    'ReForge': "--opt-sdp-attention --cuda-stream --pin-shared-memory", # Using stable SDP attention instead of xformers
     'SD-UX':   "--xformers --no-half-vae"
 }
 # --- END FIX ---
