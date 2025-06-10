@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (Final Version with Correct --data-dir Argument)
+# /content/ANXETY/scripts/launch.py (Final Version with Real-Time Output Streaming)
 
 import os
 import sys
@@ -19,10 +19,8 @@ import json_utils as js
 
 # --- Configuration ---
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
-# --- FIX: Define the shared model base path here ---
 HOME = Path(js.read(SETTINGS_PATH, 'ENVIRONMENT.home_path', str(Path.home())))
 SHARED_MODEL_BASE = HOME / 'sd_models_shared'
-# --- END FIX ---
 
 def get_launch_config():
     """Reads all necessary configuration for launch from settings.json."""
@@ -67,17 +65,34 @@ def main(args):
     if env_name in ["Google Colab", "Kaggle", "Lightning AI"] and '--listen' not in final_args:
         final_args.append('--listen')
 
-    # --- FIX: Use --data-dir to point to the top-level shared folder ---
-    # This is the correct way to tell ReForge where to find all its data subdirectories.
     final_args.extend(['--data-dir', str(SHARED_MODEL_BASE)])
-    # --- END FIX ---
         
     print(f"🚀 Launching {webui_name} with arguments: {' '.join(final_args)}")
     print("-" * 60)
 
     command = [sys.executable, str(launch_script_path)] + final_args
     
-    subprocess.run(command)
+    # --- FINAL FIX: Use Popen with a manual loop to force real-time output streaming ---
+    process = subprocess.Popen(
+        command, 
+        stdout=subprocess.PIPE, 
+        stderr=subprocess.STDOUT, 
+        text=True, 
+        bufsize=1, 
+        universal_newlines=True
+    )
+
+    # Read and print output line by line as it is generated
+    for line in iter(process.stdout.readline, ''):
+        sys.stdout.write(line)
+        sys.stdout.flush()
+    
+    process.stdout.close()
+    return_code = process.wait()
+
+    if return_code:
+        print(f"\n❌ WebUI process exited with error code {return_code}.")
+    # --- END FIX ---
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="AnxietyLightning Launcher")
