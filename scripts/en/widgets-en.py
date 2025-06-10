@@ -75,10 +75,16 @@ controlnet_widget = factory.create_select_multiple(description='ControlNet:', op
 
 # WebUI and Settings Widgets
 webui_options = ['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX']
+# --- FINAL FIX: Using the complete and correct arguments for all UIs ---
 webui_selection = {
-    'A1111': '--xformers --no-half-vae --enable-insecure-extension-access', 'Forge': '--xformers --forge-ref-a',
-    'ReForge': '--xformers --reforge-ref-a', 'ComfyUI': '--windows-standalone-build', 'Classic': '', 'SD-UX': ''
+    'A1111':   "--xformers --no-half-vae --enable-insecure-extension-access",
+    'ComfyUI': "--windows-standalone-build",
+    'Forge':   "--xformers --forge-ref-a",
+    'Classic': "--persistent-patches --cuda-stream --pin-shared-memory",
+    'ReForge': "--xformers --cuda-stream --pin-shared-memory",
+    'SD-UX':   "--xformers --no-half-vae"
 }
+# --- END FIX ---
 latest_webui_widget = factory.create_checkbox('Update WebUI', False)
 latest_extensions_widget = factory.create_checkbox('Update Extensions', False)
 change_webui_widget = factory.create_dropdown('WebUI:', webui_options)
