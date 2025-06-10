@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (Final Version with Deep Error Capture)
+# /content/ANXETY/scripts/en/downloading-en.py (Final Version with Dependency Install)
 
 import os
 import sys
@@ -17,12 +17,30 @@ if str(ANXETY_ROOT / 'modules') not in sys.path: sys.path.insert(0, str(ANXETY_R
 # ---
 
 import modules.json_utils as js
-from modules.Manager import m_download, m_clone
+from modules.Manager import m_download
 
 # --- Constants ---
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 SCRIPTS_UIs = ANXETY_ROOT / 'scripts' / 'UIs'
 WEBUI_DIR_MAPPING = {'A1111': 'A1111', 'Forge': 'Forge', 'ReForge': 'ReForge', 'Classic': 'Classic', 'ComfyUI': 'ComfyUI', 'SD-UX': 'SD-UX'}
+
+def install_dependencies():
+    """Installs required command-line tools if they haven't been installed yet."""
+    if js.key_exists(SETTINGS_PATH, 'ENVIRONMENT.dependencies_installed'):
+        print("✅ Dependencies already checked.")
+        return
+
+    print("🔧 Installing required dependencies (aria2c)...")
+    try:
+        subprocess.run(['apt-get', 'update'], check=True, capture_output=True)
+        subprocess.run(['apt-get', 'install', '-y', 'aria2'], check=True, capture_output=True)
+        js.save(str(SETTINGS_PATH), 'ENVIRONMENT.dependencies_installed', True)
+        print("✅ Dependencies installed successfully!")
+    except Exception as e:
+        print(f"❌ Failed to install dependencies: {e}", file=sys.stderr)
+        print("Please try running 'apt-get install -y aria2' in a notebook cell manually.", file=sys.stderr)
+        sys.exit(1)
+
 
 def get_webui_path():
     webui_settings = js.read(SETTINGS_PATH, 'WEBUI', {})
@@ -54,6 +72,11 @@ def process_selections(selections, data_dict, prefix):
     return commands
 
 def main():
+    # --- THIS IS THE FIX ---
+    # Install dependencies FIRST, before doing anything else.
+    install_dependencies()
+    # --- END OF FIX ---
+
     print(f"✅ Running download orchestrator: {__file__}")
     settings = js.read(SETTINGS_PATH, 'WIDGETS', {})
     webui_paths = js.read(SETTINGS_PATH, 'WEBUI', {})
@@ -68,34 +91,19 @@ def main():
         print(f"🚀 Unpacking Stable Diffusion | WEBUI: {webui_name}...")
         installer_script = SCRIPTS_UIs / f"{WEBUI_DIR_MAPPING.get(webui_name, webui_name)}.py"
         if installer_script.exists():
-            # --- THIS IS THE FIX ---
-            # We now capture the output of the child script so we can display it on failure.
             try:
-                subprocess.run(
-                    [sys.executable, str(installer_script)],
-                    check=True,
-                    capture_output=True, # Capture stdout and stderr
-                    text=True
-                )
+                subprocess.run([sys.executable, str(installer_script)], check=True, capture_output=True, text=True)
             except subprocess.CalledProcessError as e:
                 print("\n" + "="*80)
-                print("❌❌❌ WEBUI INSTALLER SCRIPT FAILED! ❌❌❌")
-                print(f"The script '{installer_script.name}' exited with a non-zero status.")
-                print("This is a critical error. Below is the full output from the failed script:")
-                print("\n--- Captured Standard Output (stdout) from installer ---")
-                print(e.stdout if e.stdout else "[No standard output was captured]")
-                print("\n--- Captured Standard Error (stderr) from installer ---")
-                print(e.stderr if e.stderr else "[No standard error was captured]")
+                print(f"❌❌❌ WEBUI INSTALLER SCRIPT FAILED! ('{installer_script.name}') ❌❌❌")
+                print("--- Captured Stderr ---\n", e.stderr)
                 print("="*80 + "\n")
-                # We re-raise the exception to halt the notebook execution cleanly.
                 raise e
-            # --- END OF FIX ---
         else:
             print(f"❌ Installer script not found: {installer_script}"); return
     else:
         print(f"🔧 WebUI found: {webui_name}")
 
-    # The rest of the script remains the same
     print("📦 Processing asset download selections...")
     is_xl = settings.get('XL_models', False)
     models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
@@ -122,14 +130,11 @@ def main():
             try:
                 prefix, rest = command.split(':', 1)
                 if prefix not in PREFIX_PATH_MAP: continue
-                
                 url_match = re.match(r"(.*?)(?:\[(.*?)\])?$", rest)
-                url = url_match.group(1)
-                filename = url_match.group(2) if url_match.group(2) else Path(urlparse(url).path).name
-                
+                url, filename = url_match.groups()
+                if not filename: filename = Path(urlparse(url).path).name
                 dst_dir = PREFIX_PATH_MAP[prefix]
                 if not dst_dir: continue
-                
                 final_command = f'"{url}" "{dst_dir}" "{filename}"'
                 print(f"  - 🔽 Queuing: {filename} to {dst_dir}")
                 m_download(final_command, log=True, unzip=True)
@@ -138,5 +143,5 @@ def main():
                 
     print("🏁 Download processing complete!")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
