@@ -1,11 +1,11 @@
-# ~ widgets.py | by ANXETY ~ (All-in-One Fix v3)
+# ~ widgets.py | by ANXETY ~ (All-in-One Fix v4)
 
 from IPython.display import display, HTML
 from widget_factory import WidgetFactory
 from webui_utils import update_current_webui
 import json_utils as js
 import ipywidgets as widgets
-from ipywidgets import Layout  # <--- FIX: Import Layout for visibility control
+from ipywidgets import Layout
 from pathlib import Path
 import os
 import re
@@ -32,8 +32,11 @@ ENV_NAME = js.read(str(SETTINGS_PATH), 'ENVIRONMENT.env_name', 'local')
 # --- Helper Functions ---
 factory = WidgetFactory()
 
+class MockChange: # <--- FIX: Helper class to solve the AttributeError
+    def __init__(self, value):
+        self.new = value
+
 def read_data_keys(file_path, data_key_in_file, prefixes=['none']):
-    """Reads data from a file, extracts a dictionary, and returns a numbered list of its keys."""
     local_vars = {}
     if not file_path.exists():
         return prefixes
@@ -46,7 +49,6 @@ def read_data_keys(file_path, data_key_in_file, prefixes=['none']):
     return prefixes + [f"{i+1}. {name}" for i, name in enumerate(data_dict.keys())]
 
 def read_lora_keys_by_type(file_path):
-    """Specifically reads the nested LoRA data and returns separated lists."""
     local_vars, sd15_keys, sdxl_keys = {}, [], []
     if not file_path.exists():
         return sd15_keys, sdxl_keys
@@ -59,29 +61,36 @@ def read_lora_keys_by_type(file_path):
            [f"{i+1}. {name}" for i, name in enumerate(sdxl_keys)]
 
 # --- Widget Creation ---
-# Models, VAEs, ControlNets
+# Data lists
 model_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_model_data')
 XL_model_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'sdxl_models_data')
 vae_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_vae_data', ['none', 'ALL'])
 XL_vae_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'sdxl_vae_data', ['none', 'ALL'])
 cnet_list = read_data_keys(SCRIPTS / '_models-data.py', 'controlnet_list', ['none', 'ALL'])
 XL_cnet_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'controlnet_list', ['none', 'ALL'])
-sd15_lora_list, sdxl_lora_list = read_lora_keys_by_type(SCRIPTS / '_loras-data.py') # <-- FIX: Get separated LoRA lists
+sd15_lora_list, sdxl_lora_list = read_lora_keys_by_type(SCRIPTS / '_loras-data.py')
 
 # Main Widgets
 XL_models_widget = factory.create_checkbox(description='XL', value=False, class_names='sdxl')
-model_widget = factory.create_dropdown(description='Models:', options=model_list)
+model_widget = factory.create_select_multiple(description='Models:', options=model_list) # <-- FIX: Changed to SelectMultiple
 inpainting_model_widget = factory.create_checkbox(description='Inpainting', value=False, class_names='inpaint')
-vae_widget = factory.create_select_multiple(description='VAE:', options=vae_list) # <-- FIX: Changed to SelectMultiple
+vae_widget = factory.create_select_multiple(description='VAE:', options=vae_list)
 lora_widget = factory.create_select_multiple(description='LoRA:', options=sd15_lora_list)
 embedding_widget = factory.create_textarea(description='Embeddings:', placeholder='Enter Embedding URLs, one per line')
 controlnet_widget = factory.create_select_multiple(description='ControlNet:', options=cnet_list)
 
 # WebUI Widgets and Download Manager...
-webui_selection = {'A1111': '', 'Forge': '', 'ComfyUI': ''}
+webui_options = ['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX'] # <-- FIX: Expanded list
+webui_selection = { # <-- FIX: Added default arguments
+    'A1111': '--xformers --no-half-vae --enable-insecure-extension-access',
+    'Forge': '--xformers --forge-ref-a',
+    'ReForge': '--xformers --reforge-ref-a',
+    'ComfyUI': '--windows-standalone-build',
+    'Classic': '', 'SD-UX': ''
+}
 latest_webui_widget = factory.create_checkbox('Update WebUI', False)
 latest_extensions_widget = factory.create_checkbox('Update Extensions', False)
-change_webui_widget = factory.create_dropdown('WebUI:', ['A1111', 'Forge', 'ComfyUI'])
+change_webui_widget = factory.create_dropdown('WebUI:', webui_options)
 commandline_arguments_widget = factory.create_text('Arguments:', '')
 Model_url_widget = factory.create_text('Model:', 'Model URL')
 Vae_url_widget = factory.create_text('VAE:', 'VAE URL')
@@ -101,12 +110,12 @@ def on_xl_change(change):
     model_widget.options = XL_model_list if is_xl else model_list
     vae_widget.options = XL_vae_list if is_xl else vae_list
     controlnet_widget.options = XL_cnet_list if is_xl else cnet_list
-    lora_widget.options = sdxl_lora_list if is_xl else sd15_lora_list # <-- FIX: Added LoRA filtering
+    lora_widget.options = sdxl_lora_list if is_xl else sd15_lora_list
 
 def on_webui_change(change):
     commandline_arguments_widget.value = webui_selection.get(change.new, '')
 
-def on_dm_toggle(change): # <-- FIX: Added callback for downloader visibility
+def on_dm_toggle(change):
     is_enabled = change.new
     download_container.layout.display = '' if is_enabled else 'none'
 
@@ -141,7 +150,7 @@ factory.load_css(widgets_css)
 XL_models_widget.observe(on_xl_change, names='value')
 change_webui_widget.observe(on_webui_change, names='value')
 save_button.on_click(on_save_click)
-download_manager_widget.observe(on_dm_toggle, names='value') # <-- FIX: Connect downloader checkbox to callback
+download_manager_widget.observe(on_dm_toggle, names='value')
 
 webui_box = factory.create_vbox([change_webui_widget, commandline_arguments_widget, factory.create_hbox([latest_webui_widget, latest_extensions_widget])], 'box_webui')
 settings_box = factory.create_vbox([factory.create_html('Settings', 'header'), factory.create_hbox([XL_models_widget, inpainting_model_widget])], 'box_settings')
@@ -154,8 +163,7 @@ download_container = factory.create_hbox([download_box, custom_files_box], 'cont
 display(top_container, models_container, download_container, GDrive_button, save_button)
 
 load_settings()
-# Set initial visibility of downloader
-on_dm_toggle({'new': download_manager_widget.value})
+on_dm_toggle(MockChange(download_manager_widget.value)) # <-- FIX: Use MockChange to prevent crash
 
 js_content = ""
 if widgets_js.exists():
