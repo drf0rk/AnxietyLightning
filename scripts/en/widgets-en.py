@@ -3,6 +3,7 @@
 import os
 import sys
 from pathlib import Path
+from ipywidgets import VBox # Import VBox for layout
 
 # Self-aware pathing to find the project root
 try:
@@ -49,74 +50,80 @@ for script_path in data_scripts:
     with open(script_path, 'r', encoding='utf-8') as f:
         exec(f.read(), data)
 
-# --- START OF REWRITTEN LOGIC ---
+# --- START OF CORRECTED LOGIC ---
 
 # 1. Create an instance of the factory
 factory = WidgetFactory()
 
-# 2. Build the UI using the available low-level methods
-factory.create_header('<h2>Environment settings</h2>')
-factory.create_dropdown(
+# 2. Create a list to hold all the widgets we want to display
+ui_elements = []
+
+# 3. Build the UI, creating and collecting widgets
+ui_elements.append(factory.create_header('<h2>Environment settings</h2>'))
+ui_elements.append(factory.create_dropdown(
     name='WebUI',
     options=['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX'],
     description='Select a Stable Diffusion WebUI:'
-)
+))
 
-factory.create_header('<h2>Models settings</h2>')
+ui_elements.append(factory.create_header('<h2>Models settings</h2>'))
 all_models = list(data.get('models', {}).keys()) + list(data.get('xl_models', {}).keys())
-factory.create_dropdown(
+ui_elements.append(factory.create_dropdown(
     name='model',
     options=all_models,
     description='Select main model:'
-)
-factory.create_select_multiple(
+))
+ui_elements.append(factory.create_select_multiple(
     name='additional_models',
     options=all_models,
     description='Select additional models (optional):'
-)
+))
 
-factory.create_header('<h2>LoRAs settings</h2>')
-factory.create_select_multiple(
+ui_elements.append(factory.create_header('<h2>LoRAs settings</h2>'))
+ui_elements.append(factory.create_select_multiple(
     name='loras',
     options=list(data.get('loras', {}).keys()),
     description='Select LoRAs:'
-)
+))
 
-factory.create_header('<h2>Additional settings</h2>')
-factory.create_checkbox(
+ui_elements.append(factory.create_header('<h2>Additional settings</h2>'))
+ui_elements.append(factory.create_checkbox(
     name='update_webui',
     description='Update WebUI',
     value=False
-)
-factory.create_checkbox(
+))
+ui_elements.append(factory.create_checkbox(
     name='update_extensions',
     description='Update Extensions',
     value=False
-)
-factory.create_checkbox(
+))
+ui_elements.append(factory.create_checkbox(
     name='download_manager',
     description='Run Download Manager',
     value=True
-)
+))
 
-factory.create_header('<h2>Empowerment mode</h2>')
-factory.create_textarea(
+ui_elements.append(factory.create_header('<h2>Empowerment mode</h2>'))
+ui_elements.append(factory.create_textarea(
     name='empowerment_mode',
     placeholder='Enter download commands here...',
     description='Empowerment mode for advanced downloading:'
-)
+))
 
-factory.create_header('<h2>Seasonal themes</h2>')
-factory.create_dropdown(
+ui_elements.append(factory.create_header('<h2>Seasonal themes</h2>'))
+ui_elements.append(factory.create_dropdown(
     name='season',
     options=['None', 'Christmas', 'Halloween'],
     description='Select a theme:'
-)
+))
 
-# 3. Display the generated form
-factory.display()
+# 4. Create a single VBox container to hold all UI elements for proper layout
+form_container = VBox(ui_elements)
 
-# 4. Load the necessary JavaScript
+# 5. Display the container
+factory.display(form_container)
+
+# 6. Load the necessary JavaScript
 factory.load_js(js_script)
 
-# --- END OF REWRITTEN LOGIC ---
+# --- END OF CORRECTED LOGIC ---
