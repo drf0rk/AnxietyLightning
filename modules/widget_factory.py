@@ -1,4 +1,4 @@
-# /content/ANXETY/modules/widget_factory.py
+# /modules/widget_factory.py
 
 """ WidgetFactory Module | by ANXETY """
 
@@ -16,15 +16,10 @@ class WidgetFactory:
         """Validate and normalize class names."""
         if class_names is None:
             return []
-
         if isinstance(class_names, str):
             return [class_names.strip()]
-
         if isinstance(class_names, list):
             return [cls.strip() for cls in class_names if cls.strip()]
-        
-        # This part of the original code had a reference to self._log which doesn't exist.
-        # It's better to print a warning directly.
         print(f"Warning: Invalid class_names type: {type(class_names).__name__}")
         return []
 
@@ -66,7 +61,6 @@ class WidgetFactory:
         """Create a widget with default styling and layout."""
         style = self.default_style if style is None else style
         layout = self.default_layout if layout is None else layout
-
         widget = widget_class(description=description, style=style, layout=layout, **kwargs)
         self.add_classes(widget, class_names)
         return widget
@@ -125,21 +119,13 @@ class WidgetFactory:
             for widget in widgets:
                 self.add_classes(widget, class_names)
 
-        time.sleep(delay)  # closing delay for all widgets
+        time.sleep(delay)
 
-        # Close all widgets
         for widget in widgets:
             widget.close()
 
     # CallBack
     def connect_widgets(self, widget_pairs, callbacks):
-        """
-        Connect multiple widgets to callback functions for specified property changes.
-
-        Parameters:
-        - widget_pairs: List of tuples where each tuple contains a widget and the property name to observe.
-        - callbacks: List of callback functions or a single callback function to be called on property change.
-        """
         if not isinstance(callbacks, list):
             callbacks = [callbacks]
 
