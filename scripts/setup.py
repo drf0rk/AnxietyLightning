@@ -1,5 +1,4 @@
-# /scripts/setup.py - The Project Downloader (v2 - Robust Checks)
-# This script's only job is to download the project files from GitHub.
+# /scripts/setup.py - (v3 - Filename Correction)
 
 import subprocess
 import shlex
@@ -23,10 +22,7 @@ def run_command(command, description):
             encoding='utf-8',
             errors='replace'
         )
-        while True:
-            line = process.stdout.readline()
-            if not line:
-                break
+        for line in iter(process.stdout.readline, ''):
             print(f"  > {line.strip()}")
         
         process.wait()
@@ -59,7 +55,6 @@ def main():
     # 1. Ensure npm and degit are installed.
     if not check_command_exists('npm'):
          if not run_command("apt-get -y install nodejs npm", "Install npm"):
-             print("❌ Critical error: Could not install npm.", file=sys.stderr)
              sys.exit(1)
 
     if not check_command_exists('degit'):
