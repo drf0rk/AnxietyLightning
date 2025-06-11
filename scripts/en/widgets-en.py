@@ -1,135 +1,167 @@
-# /content/ANXETY/scripts/en/widgets-en.py (Final Stable Arguments)
+#
+# This script represents the new, multi-stage UI logic - VERSION 2
+#
+# It should be saved as 'widgets-en.py' and executed by the main bootstrap cell.
+#
 
-import os
-import sys
-from pathlib import Path
-
-# --- Self-aware pathing ---
-try:
-    ANXETY_ROOT = Path(__file__).resolve().parents[2]
-except NameError:
-    ANXETY_ROOT = Path.cwd()
-
-if str(ANXETY_ROOT) not in sys.path:
-    sys.path.insert(0, str(ANXETY_ROOT))
-# --- End of fix ---
-
-from IPython.display import display, HTML
-from modules.widget_factory import WidgetFactory
-from modules.webui_utils import update_current_webui
-import modules.json_utils as js
 import ipywidgets as widgets
-from ipywidgets import Layout
+from IPython.display import display, clear_output
+from pathlib import Path
+import sys
+import os # Imported to check for Kaggle environment
 
-# --- Constants and Paths ---
-SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
-SCRIPTS = ANXETY_ROOT / 'scripts'
-CSS = ANXETY_ROOT / 'CSS'
-JS = ANXETY_ROOT / 'JS'
-widgets_css = CSS / 'main-widgets.css'
-widgets_js = JS / 'main-widgets.js'
+# --- Configuration & Environment Detection ---
+ANXETY_ROOT = Path('/content/ANXETY')
 
-factory = WidgetFactory()
+# --- ENHANCEMENT: More detailed environment detection ---
+def detect_environment():
+    if 'google.colab' in sys.modules:
+        return "Google Colab"
+    elif 'KAGGLE_KERNEL_RUN_TYPE' in os.environ:
+        return "Kaggle"
+    else:
+        return "Local / Unknown"
 
-def read_data_keys(file_path, data_key_in_file, prefixes=['none']):
-    local_vars = {}
-    if not file_path.exists(): return prefixes
-    with open(file_path, 'r', encoding='utf-8') as f:
-        try: exec(f.read(), {}, local_vars)
-        except Exception as e: return prefixes
-    data_dict = local_vars.get(data_key_in_file, {})
-    return prefixes + [f"{i+1}. {name}" for i, name in enumerate(data_dict.keys())]
+PLATFORM = detect_environment()
+IS_COLAB = (PLATFORM == "Google Colab")
 
-def read_lora_keys_by_type(file_path):
-    local_vars, sd15_keys, sdxl_keys = {}, [], []
-    if not file_path.exists(): return sd15_keys, sdxl_keys
-    with open(file_path, 'r', encoding='utf-8') as f: exec(f.read(), {}, local_vars)
-    lora_main_dict = local_vars.get('lora_data', {})
-    sd15_keys = list(lora_main_dict.get('sd15_loras', {}).keys())
-    sdxl_keys = list(lora_main_dict.get('sdxl_loras', {}).keys())
-    return [f"{i+1}. {name}" for i, name in enumerate(sd15_keys)], \
-           [f"{i+1}. {name}" for i, name in enumerate(sdxl_keys)]
+# --- UI Creation Functions ---
 
-model_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_model_data')
-XL_model_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'sdxl_models_data')
-vae_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_vae_data', ['none', 'ALL'])
-XL_vae_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'sdxl_vae_data', ['none', 'ALL'])
-cnet_list = read_data_keys(SCRIPTS / '_models-data.py', 'controlnet_list', ['none', 'ALL'])
-XL_cnet_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'controlnet_list', ['none', 'ALL'])
-sd15_lora_list, sdxl_lora_list = read_lora_keys_by_type(SCRIPTS / '_loras-data.py')
+def create_stage1_ui():
+    """
+    Creates and displays the initial Setup UI with the custom header and action buttons.
+    """
+    # --- 1. Custom CSS for Styling (with button enhancements) ---
+    header_css = widgets.HTML("""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto+Mono&display=swap');
 
-XL_models_widget = factory.create_checkbox(description='XL', value=False, class_names='sdxl')
-model_widget = factory.create_select_multiple(description='Models:', options=model_list)
-inpainting_model_widget = factory.create_checkbox(description='Inpainting', value=False, class_names='inpaint')
-vae_widget = factory.create_select_multiple(description='VAE:', options=vae_list)
-lora_widget = factory.create_select_multiple(description='LoRA:', options=sd15_lora_list)
-controlnet_widget = factory.create_select_multiple(description='ControlNet:', options=cnet_list)
+        .metal-header-container {
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            font-family: 'Roboto Mono', monospace;
+            color: #fff;
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.2);
+        }
+        .metal-header-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 24px;
+            font-weight: 700;
+            color: #ff3333;
+            text-shadow: 0 0 5px #ff0000, 0 0 10px #ff0000, 0 0 20px #ff0000;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            font-size: 12px;
+        }
+        .status-item {
+            background: #222;
+            padding: 5px 10px;
+            border-radius: 4px;
+            border-left: 3px solid #ff3333;
+        }
+        .status-item strong {
+            color: #ff9999;
+        }
+        /* --- NEW: Button Styling --- */
+        .metal-button {
+            background-color: #222 !important;
+            color: #ff8888 !important;
+            border: 1px solid #ff4444 !important;
+            font-weight: bold !important;
+            transition: all 0.2s ease-in-out;
+            margin: 5px;
+            /* --- NEW: Making buttons bigger --- */
+            font-size: 14px !important;
+            padding: 8px 16px !important;
+            min-width: 150px;
+        }
+        .metal-button:hover {
+            background-color: #ff3333 !important;
+            color: #fff !important;
+            box-shadow: 0 0 10px #ff3333;
+        }
+        .button-center-container {
+            display: flex;
+            justify-content: center;
+        }
+    </style>
+    """)
 
-webui_options = ['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX']
-# --- FIX: Use stable arguments for ReForge, avoiding xformers ---
-webui_selection = {
-    'A1111':   "--xformers --no-half-vae --enable-insecure-extension-access",
-    'ComfyUI': "--use-sage-attention --dont-print-server",
-    'Forge':   "--xformers --forge-ref-a",
-    'Classic': "--persistent-patches --cuda-stream --pin-shared-memory",
-    'ReForge': "--xformers --cuda-stream --pin-shared-memory --share",
-    'SD-UX':   "--xformers --no-half-vae"
-}
-# --- END FIX ---
-latest_webui_widget = factory.create_checkbox('Update WebUI', False)
-latest_extensions_widget = factory.create_checkbox('Update Extensions', False)
-change_webui_widget = factory.create_dropdown('WebUI:', webui_options)
-commandline_arguments_widget = factory.create_text('Arguments:', '')
-GDrive_button = factory.create_button(description='Mount GDrive', class_names='gdrive-btn')
-save_button = factory.create_button(description='Save settings', class_names='button_save')
+    # --- 2. Dynamic Header Content (with more info) ---
+    drive_status = "Mounted" if Path('/content/drive/MyDrive').exists() else "Not Mounted"
+    venv_status = "✅ Found" if Path('/content/venv').exists() else "❌ Not Found"
+    header_html = widgets.HTML(f"""
+    <div class="metal-header-container">
+        <div class="metal-header-title">A N X I E T Y ⚡ L I G H T N I N G</div>
+        <div class="status-grid">
+            <div class="status-item"><strong>PLATFORM:</strong> {PLATFORM}</div>
+            <div class="status-item"><strong>ROOT:</strong> {str(ANXETY_ROOT)}</div>
+            <div class="status-item"><strong>DRIVE:</strong> <span id="drive-status">{drive_status}</span></div>
+            <div class="status-item"><strong>VENV:</strong> {venv_status}</div>
+        </div>
+    </div>
+    """)
 
-def on_xl_change(change):
-    is_xl = change.new
-    model_widget.options = XL_model_list if is_xl else model_list
-    vae_widget.options = XL_vae_list if is_xl else vae_list
-    controlnet_widget.options = XL_cnet_list if is_xl else cnet_list
-    lora_widget.options = sdxl_lora_list if is_xl else sd15_lora_list
+    # --- 3. Action Buttons and Handlers ---
+    content_area = widgets.VBox([])
 
-def on_webui_change(change):
-    commandline_arguments_widget.value = webui_selection.get(change.new, '')
+    def connect_drive_click(b):
+        if IS_COLAB:
+            from google.colab import drive
+            b.description = "Mounting..."
+            b.icon = "spinner"
+            b.disabled = True
+            drive.mount('/content/drive')
+            print("✅ Google Drive Mounted at /content/drive.")
+            b.description = "Drive Connected"
+            b.icon = "check"
+        else:
+            print("Drive mounting is only available in Google Colab.")
 
-def on_save_click(button):
-    save_settings()
-    all_ui_components = [top_container, models_container, GDrive_button, save_button]
-    factory.close(all_ui_components, class_names='hide')
+    def open_custom_files_click(b):
+        with content_area:
+            clear_output(wait=True)
+            display(widgets.HTML("<h3>Extra File Downloader (Placeholder)</h3><p>This section will contain a text area for URLs and a download button.</p>"))
 
-SETTINGS_KEYS = [
-    'XL_models', 'model', 'inpainting_model', 'vae', 'lora', 'controlnet',
-    'latest_webui', 'latest_extensions', 'change_webui', 'commandline_arguments',
-]
+    def continue_to_main_ui_click(b):
+        with content_area:
+            clear_output(wait=True)
+            display(widgets.HTML("<h3>Main Asset Selector (Placeholder)</h3><p>The full UI with models, LoRAs, etc., will be built here in our next step.</p>"))
 
-def save_settings():
-    widget_values = {key: globals()[f"{key}_widget"].value for key in SETTINGS_KEYS}
-    js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
-    js.save(str(SETTINGS_PATH), 'mountGDrive', getattr(GDrive_button, 'toggle', False))
-    update_current_webui(change_webui_widget.value)
+    # Create Buttons
+    btn_gdrive = widgets.Button(description="Connect Drive", icon="google-drive", tooltip="Mount Google Drive")
+    btn_gdrive.add_class("metal-button")
+    btn_gdrive.on_click(connect_drive_click)
 
-def load_settings():
-    if js.key_exists(str(SETTINGS_PATH), 'WIDGETS'):
-        widget_data = js.read(str(SETTINGS_PATH), 'WIDGETS')
-        for key in SETTINGS_KEYS:
-            if key in widget_data and f"{key}_widget" in globals():
-                globals()[f"{key}_widget"].value = widget_data.get(key)
-    GDrive_button.toggle = js.read(str(SETTINGS_PATH), 'mountGDrive', False)
-    if GDrive_button.toggle: GDrive_button.add_class('active')
+    btn_custom_files = widgets.Button(description="Custom Files", icon="download", tooltip="Download extra files from URLs")
+    btn_custom_files.add_class("metal-button")
+    btn_custom_files.on_click(open_custom_files_click)
 
-factory.load_css(widgets_css)
-XL_models_widget.observe(on_xl_change, names='value')
-change_webui_widget.observe(on_webui_change, names='value')
-save_button.on_click(on_save_click)
-webui_box = factory.create_vbox([change_webui_widget, commandline_arguments_widget, factory.create_hbox([latest_webui_widget, latest_extensions_widget])], 'box_webui')
-settings_box = factory.create_vbox([factory.create_html('Settings', 'header'), factory.create_hbox([XL_models_widget, inpainting_model_widget])], 'box_settings')
-top_container = factory.create_hbox([webui_box, settings_box], 'container_webui')
-models_container = factory.create_vbox([model_widget, vae_widget, lora_widget, controlnet_widget], 'container_models')
-display(top_container, models_container, GDrive_button, save_button)
-load_settings()
+    btn_continue = widgets.Button(description="Continue", icon="arrow-down", tooltip="Proceed to main asset selection")
+    btn_continue.add_class("metal-button")
+    btn_continue.on_click(continue_to_main_ui_click)
 
-if widgets_js.exists():
-    with open(widgets_js, 'r', encoding='utf-8') as f:
-        js_content = f.read()
-    display(HTML(f"<script>{js_content}</script>"))
+    buttons_to_display = [btn_custom_files, btn_continue]
+    if IS_COLAB:
+        buttons_to_display.insert(0, btn_gdrive)
+    
+    # --- NEW: Centering the buttons ---
+    button_bar = widgets.HBox(buttons_to_display)
+    centered_button_bar = widgets.Box([button_bar], layout=widgets.Layout(display='flex', justify_content='center'))
+
+
+    # --- 4. Assemble and Display Stage 1 ---
+    stage1_container = widgets.VBox([header_css, header_html, centered_button_bar, content_area])
+    display(stage1_container)
+
+
+# --- Main Execution ---
+create_stage1_ui()
