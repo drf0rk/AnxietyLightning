@@ -1,4 +1,4 @@
-# /scripts/setup.py - The Project Downloader
+# /scripts/setup.py - The Project Downloader (v2 - Robust Checks)
 # This script's only job is to download the project files from GitHub.
 
 import subprocess
@@ -7,18 +7,14 @@ import sys
 from pathlib import Path
 
 # --- Configuration ---
-# The GitHub repository to download from. Format: 'user/repo'
 REPO_URL = "drf0rk/AnxietyLightning"
-# The branch to download.
 BRANCH = "main"
-# The destination directory.
 DEST_DIR = Path("/content/ANXETY")
 
 def run_command(command, description):
     """Runs a shell command and prints its status."""
     print(f"🔩 Executing: {description}...")
     try:
-        # We use Popen to stream output in real-time
         process = subprocess.Popen(
             shlex.split(command),
             stdout=subprocess.PIPE,
@@ -27,10 +23,7 @@ def run_command(command, description):
             encoding='utf-8',
             errors='replace'
         )
-        while True:
-            line = process.stdout.readline()
-            if not line:
-                break
+        for line in iter(process.stdout.readline, ''):
             print(f"  > {line.strip()}")
         
         process.wait()
@@ -47,24 +40,32 @@ def run_command(command, description):
         print(f"❌ An unexpected error occurred: {e}")
         return False
 
+def check_command_exists(command):
+    """Safely checks if a command exists without crashing."""
+    try:
+        subprocess.run([command, '--version'], capture_output=True, check=True)
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+
 def main():
     """Main setup function."""
     print("--- Starting Project Setup ---")
     DEST_DIR.mkdir(parents=True, exist_ok=True)
 
     # 1. Ensure npm and degit are installed.
-    if subprocess.run(['npm', '--version'], capture_output=True).returncode != 0:
-         if not run_command("apt-get install -y nodejs npm", "Install npm"):
+    if not check_command_exists('npm'):
+         if not run_command("apt-get -y install nodejs npm", "Install npm"):
+             print("❌ Critical error: Could not install npm.", file=sys.stderr)
              sys.exit(1)
 
-    if subprocess.run(['degit', '--version'], capture_output=True).returncode != 0:
+    if not check_command_exists('degit'):
         print("🔧 'degit' not found. Attempting to install via npm...")
         if not run_command("npm install -g degit", "Install degit"):
             print("❌ Critical error: Could not install degit.", file=sys.stderr)
             sys.exit(1)
 
-    # 2. Download the repository, excluding the setup script itself to prevent recursion.
-    # Degit efficiently downloads the latest version of the repository content.
+    # 2. Download the repository using degit.
     print(f"\nDownloading repository '{REPO_URL}'...")
     degit_command = f"degit {REPO_URL}#{BRANCH} {DEST_DIR} --force"
     if not run_command(degit_command, "Download repository files"):
