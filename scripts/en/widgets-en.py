@@ -1,148 +1,125 @@
-# This is the new content for widgets-en.py (VERSION 7)
+# /content/ANXETY/scripts/en/widgets-en.py
 
 import ipywidgets as widgets
-from IPython.display import display, clear_output
+from IPython.display import display, clear_output, HTML
 from pathlib import Path
 import sys
 import os
 import runpy
 import subprocess
+import json
+import time
 
 # --- Configuration & Globals ---
 ANXETY_ROOT = Path('/content/ANXETY')
-IS_COLAB = 'google.colab' in sys.modules
 VENV_PATH = Path('/content/venv')
+SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 
-# --- Backend Logic Helpers ---
-def run_downloader(urls, output_widget):
-    with output_widget:
-        clear_output()
-        if str(ANXETY_ROOT) not in sys.path:
-            sys.path.insert(0, str(ANXETY_ROOT))
-        from modules.Manager import m_download
-        print(f"Starting download for {len(urls)} items...")
-        for url in urls:
-            if url.strip():
-                m_download(url, log=True)
-        print("✅ Custom file download complete.")
+if str(ANXETY_ROOT) not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT))
+if str(ANXETY_ROOT / 'modules') not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
 
-def run_venv_setup(output_widget):
-    with output_widget:
-        clear_output()
-        print("--- Running VENV Downloader ---")
-        # Run the downloading-en.py script to get the VENV
-        get_ipython().run_line_magic('run', str(ANXETY_ROOT / 'scripts' / 'en' / 'downloading-en.py'))
+# --- Import Project Modules ---
+from modules.widget_factory import WidgetFactory
+from modules.webui_utils import update_current_webui
+from modules.Manager import m_download
+import modules.json_utils as js
+
+# --- Main UI Class ---
+class AnxietyUI:
+    def __init__(self):
+        self.factory = WidgetFactory()
+        self.widgets = {}
+        self.layouts = {}
+        self.buttons = {}
+
+        # Load CSS and JS
+        self.factory.load_css(ANXETY_ROOT / 'CSS' / 'main-widgets.css')
+        self.factory.load_css(ANXETY_ROOT / 'CSS' / 'download-result.css')
+        self.factory.load_js(ANXETY_ROOT / 'JS' / 'main-widgets.js')
+
+    def create_ui(self):
+        """Creates and displays the entire user interface."""
+        self._create_widgets()
+        self._create_layouts()
+        self._assign_callbacks()
+        display(self.layouts['main_container'])
+        # self.load_settings() # We can enable this later
+
+    def _create_widgets(self):
+        """Creates all the individual widgets for the UI using the factory."""
+        models_data = runpy.run_path(str(ANXETY_ROOT / 'scripts/_models-data.py'))
         
-        # Now, perform the VENV repair right here
-        print("\n--- Applying VENV Patches & Fixes ---")
-        VENV_BIN_PATH = VENV_PATH / 'bin'
-        VENV_PYTHON_EXEC = VENV_BIN_PATH / 'python'
-        CORRECT_PYTHON_PATH = f"#!/{VENV_PYTHON_EXEC.relative_to('/')}"
-
-        if VENV_BIN_PATH.exists():
-            print("  - Correcting shebang paths in venv scripts...")
-            for script_path in VENV_BIN_PATH.iterdir():
-                if script_path.is_file() and not script_path.is_symlink():
-                    try:
-                        content = script_path.read_text(encoding='utf-8', errors='ignore')
-                        if content.startswith('#!/root/venv/bin/python'):
-                            new_content = content.replace('#!/root/venv/bin/python', CORRECT_PYTHON_PATH, 1)
-                            script_path.write_text(new_content, encoding='utf-8')
-                    except Exception as e:
-                        print(f"    - Could not patch {script_path.name}: {e}")
-            print("  ✅ VENV shebang path correction complete.")
-            
-            print("  - Forcing upgrade of torch and xformers for compatibility...")
-            try:
-                subprocess.run([str(VENV_PYTHON_EXEC), '-m', 'pip', 'install', '--upgrade', 'torch', 'torchvision', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cu121'], check=True, capture_output=True, text=True)
-                subprocess.run([str(VENV_PYTHON_EXEC), '-m', 'pip', 'install', 'xformers'], check=True, capture_output=True, text=True)
-                print("  ✅ Core libraries upgraded successfully.")
-            except subprocess.CalledProcessError as e:
-                print(f"  ❌ Failed to upgrade libraries: {e.stderr}")
-        else:
-            print("⚠️ VENV bin directory not found. Cannot apply patches.")
-            
-# --- UI Creation Functions ---
-
-def create_stage2_ui(content_area):
-    """Builds and displays the main asset selector UI."""
-    model_data_path = ANXETY_ROOT / 'scripts/_models-data.py'
-    if not model_data_path.exists():
-        placeholder_ui = widgets.HTML("<h3>Error</h3><p>Could not find model data file.</p>")
-        content_area.children = (placeholder_ui,)
-        return
-
-    models_data = runpy.run_path(str(model_data_path))
-    model_checkboxes = [widgets.Checkbox(description=name, value=False, indent=False) for name in models_data.get('model_list', [])]
-    model_widget_area = widgets.VBox(model_checkboxes)
-    model_widget_area.add_class("widget-area")
-    
-    sdxl_toggle = widgets.ToggleButton(value=False, description='SDXL Models', button_style='info', tooltip='Toggle to show SDXL models', icon='rocket')
-    
-    # Placeholder for the final launch button
-    launch_button = widgets.Button(description="Download Assets & Launch", icon='paper-plane', button_style='success'); launch_button.add_class("metal-button")
-
-    model_selector_ui = widgets.VBox([widgets.HTML("<h4>Model Selector</h4>"), sdxl_toggle, model_widget_area, launch_button])
-    model_selector_ui.add_class("content-container")
-    
-    content_area.children = (model_selector_ui,)
-
-def create_stage1_ui():
-    """Creates and displays the initial Setup UI."""
-    ui_css = widgets.HTML("""<style>...</style>""") # Keeping CSS brief for clarity
-    
-    def detect_environment():
-        if 'google.colab' in sys.modules: return "Google Colab"
-        if 'KAGGLE_KERNEL_RUN_TYPE' in os.environ: return "Kaggle"
-        return "Local / Unknown"
-    
-    PLATFORM = detect_environment()
-    drive_status = "Mounted" if Path('/content/drive/MyDrive').exists() else "Not Mounted"
-    venv_status = "✅ Found" if VENV_PATH.exists() else "❌ Not Found"
-    header_html = widgets.HTML(f"""<div class="metal-header-container">...</div>""") # Keeping HTML brief
-    
-    content_area = widgets.VBox([])
-
-    def connect_drive_click(b):
-        # ... function content ...
-        pass
-
-    def open_custom_files_click(b):
-        custom_urls_textarea = widgets.Textarea(placeholder='Paste one URL per line...', layout=widgets.Layout(width='99%', height='150px'))
-        download_button = widgets.Button(description="Start Download", icon="download"); download_button.add_class("metal-button")
-        output_widget = widgets.Output()
+        # --- FIXED LINE ---
+        self.widgets['sdxl_toggle'] = self.factory.create_toggle_button(description="SDXL Models", value=False, button_style='info', tooltip='Toggle SDXL Models', icon='rocket')
         
-        def on_download_click(btn):
-            urls = custom_urls_textarea.value.split('\n')
-            run_downloader(urls, output_widget)
+        self.widgets['detailed_download'] = self.factory.create_checkbox(description="Detailed download")
+        webui_options = ['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX']
+        self.widgets['change_webui'] = self.factory.create_dropdown('WebUI:', webui_options, 'ReForge')
+        self.widgets['commandline_arguments'] = self.factory.create_text(description="Arguments:")
 
-        download_button.on_click(on_download_click)
-        downloader_ui = widgets.VBox([widgets.HTML("<h4>Extra File Downloader</h4>"), custom_urls_textarea, download_button, output_widget])
-        downloader_ui.add_class("content-container")
-        content_area.children = (downloader_ui,)
-
-    def continue_to_next_stage_click(b):
-        # --- NEW LOGIC ---
-        # 1. Show an output area for VENV setup progress
-        output_widget = widgets.Output()
-        content_area.children = (output_widget,)
+        self.widgets['model_list'] = [self.factory.create_checkbox(description=name) for name in models_data.get('sd15_model_data', [])]
+        self.widgets['vae_list'] = [self.factory.create_checkbox(description=name) for name in models_data.get('sd15_vae_data', [])]
+        self.widgets['controlnet_list'] = [self.factory.create_checkbox(description=name) for name in models_data.get('controlnet_list', [])]
         
-        # 2. Run VENV setup and repair, printing to the output widget
-        run_venv_setup(output_widget)
+        self.widgets['lora_url'] = self.factory.create_textarea("", placeholder="Paste LoRA URLs here, one per line...")
+        self.widgets['embedding_url'] = self.factory.create_textarea("", placeholder="Paste Embedding URLs here...")
+        self.widgets['extension_url'] = self.factory.create_textarea("", placeholder="Paste Git Repo URLs for Extensions here...")
+        self.widgets['extra_files_url'] = self.factory.create_textarea("", placeholder="Paste any other direct download URLs here...")
+
+    def _create_layouts(self):
+        """Creates and arranges all widgets into a final layout."""
+        models_box = widgets.VBox(self.widgets['model_list'])
+        vaes_box = widgets.VBox(self.widgets['vae_list'])
+        cnets_box = widgets.VBox(self.widgets['controlnet_list'])
+
+        accordion = widgets.Accordion(children=[
+            models_box, vaes_box, cnets_box,
+            self.widgets['lora_url'], self.widgets['embedding_url'],
+            self.widgets['extension_url'], self.widgets['extra_files_url']
+        ])
+        titles = ['Checkpoints', 'VAEs', 'ControlNets', 'LoRAs (URL)', 'Embeddings (URL)', 'Extensions (Git)', 'Extra Files (URL)']
+        for i, title in enumerate(titles): accordion.set_title(i, title)
+
+        self.buttons['launch'] = self.factory.create_button(description="Install, Download & Launch", class_names=['button', 'button_save'], icon='paper-plane')
         
-        # 3. Once complete, build and display the Stage 2 UI
-        create_stage2_ui(content_area)
+        top_bar = widgets.HBox([self.widgets['change_webui'], self.widgets['sdxl_toggle'], self.widgets['detailed_download']])
+        self.layouts['output_layout'] = widgets.Output()
+        self.layouts['main_container'] = widgets.VBox([top_bar, self.widgets['commandline_arguments'], accordion, self.buttons['launch'], self.layouts['output_layout']])
 
-    # --- Button Creation & Assembly ---
-    buttons_to_display = []
-    # ... button creation logic ...
-    btn_continue = widgets.Button(description="Setup VENV & Continue", icon="arrow-down", tooltip="Download VENV and proceed to asset selection"); btn_continue.add_class("metal-button"); btn_continue.on_click(continue_to_next_stage_click)
-    buttons_to_display.append(btn_continue)
-    
-    button_bar = widgets.HBox(buttons_to_display)
-    centered_button_bar = widgets.Box([button_bar], layout=widgets.Layout(display='flex', justify_content='center'))
-    stage1_container = widgets.VBox([ui_css, header_html, centered_button_bar, content_area])
-    display(stage1_container)
+    def _assign_callbacks(self):
+        """Assigns backend functions to button click events."""
+        self.buttons['launch'].on_click(self.on_launch_click)
 
-# --- Main Execution ---
-create_stage1_ui()
+    def on_launch_click(self, b):
+        """Orchestrates the entire setup and launch process."""
+        b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
+        with self.layouts['output_layout']:
+            clear_output(wait=True)
+            self._run_full_sequence()
+        b.description = "Launch Complete"; b.icon = "check"; b.disabled = False
+        
+    def _run_full_sequence(self):
+        print("--- Saving All UI Settings ---"); self.save_settings()
+        
+        # Here we will later call the backend scripts in order:
+        # 1. VENV Setup
+        # 2. Asset Downloads
+        # 3. WebUI Launch
+        print("Backend execution pipeline would start here.")
+        
+    def save_settings(self):
+        """Saves the state of all widgets to settings.json."""
+        widget_values = {k: v.value for k, v in self.widgets.items() if hasattr(v, 'value') and not isinstance(v, list)}
+        
+        for key in ['model_list', 'vae_list', 'controlnet_list']:
+            widget_values[key] = [cb.description for cb in self.widgets[key] if cb.value]
+
+        js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
+        update_current_webui(widget_values['change_webui'])
+        print("✅ Configuration saved to settings.json")
+
+if __name__ == "__main__":
+    ui = AnxietyUI()
+    ui.create_ui()

@@ -1,3 +1,5 @@
+# /content/ANXETY/modules/widget_factory.py
+
 """ WidgetFactory Module | by ANXETY """
 
 from IPython.display import display, HTML
@@ -20,8 +22,10 @@ class WidgetFactory:
 
         if isinstance(class_names, list):
             return [cls.strip() for cls in class_names if cls.strip()]
-
-        self._log(f"Invalid class_names type: {type(class_names).__name__}", 'WARNING')
+        
+        # This part of the original code had a reference to self._log which doesn't exist.
+        # It's better to print a warning directly.
+        print(f"Warning: Invalid class_names type: {type(class_names).__name__}")
         return []
 
     def add_classes(self, widget, class_names):
@@ -67,10 +71,10 @@ class WidgetFactory:
         self.add_classes(widget, class_names)
         return widget
 
-    def create_text(self, description, placeholder, class_names=None, **kwargs):
+    def create_text(self, description, placeholder="", class_names=None, **kwargs):
         return self._create_widget(widgets.Text, description, class_names, placeholder=placeholder, **kwargs)
 
-    def create_textarea(self, description, placeholder, class_names=None, **kwargs):
+    def create_textarea(self, description, placeholder="", class_names=None, **kwargs):
         return self._create_widget(widgets.Textarea, description, class_names, placeholder=placeholder, **kwargs)
 
     def create_dropdown(self, description, options, class_names=None, **kwargs):
@@ -79,11 +83,15 @@ class WidgetFactory:
     def create_select_multiple(self, description, options, class_names=None, **kwargs):
         return self._create_widget(widgets.SelectMultiple, description, class_names, options=options, **kwargs)
 
-    def create_checkbox(self, description, value, class_names=None, **kwargs):
+    def create_checkbox(self, description, value=False, class_names=None, **kwargs):
         return self._create_widget(widgets.Checkbox, description, class_names, value=value, indent=False, **kwargs)
 
     def create_button(self, description, class_names=None, **kwargs):
         return self._create_widget(widgets.Button, description, class_names, **kwargs)
+        
+    def create_toggle_button(self, description, class_names=None, **kwargs):
+        """Creates a ToggleButton widget."""
+        return self._create_widget(widgets.ToggleButton, description, class_names, **kwargs)
 
     # Containers
     def _create_box(self, box_class, children, class_names=None, layout=None, **kwargs):
