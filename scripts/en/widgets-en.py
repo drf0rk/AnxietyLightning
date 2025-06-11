@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets-en.py (Version with backend execution logic)
+# /content/ANXETY/scripts/en/widgets-en.py (Version with get_ipython import fix)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -9,6 +9,7 @@ import runpy
 import subprocess
 import json
 import time
+from IPython import get_ipython # <-- THIS IS THE FIX
 
 # --- Configuration & Globals ---
 ANXETY_ROOT = Path('/content/ANXETY')
@@ -102,9 +103,10 @@ class AnxietyUI:
                 print("❌ Please enter a valid Git repository URL.")
                 return
             print(f"🔧 Cloning extension from: {repo_url}...")
+            # Use a fresh read of settings to ensure paths are correct
+            HOME = Path(js.read(SETTINGS_PATH, 'ENVIRONMENT.home_path', str(Path.home())))
             current_ui = self.widgets['change_webui'].value
             paths = WEBUI_PATHS.get(current_ui, WEBUI_PATHS[DEFAULT_UI])
-            HOME = Path(js.read(SETTINGS_PATH, 'ENVIRONMENT.home_path', str(Path.home())))
             webui_dir_name = 'ReForge' if current_ui == 'ReForge' else current_ui
             webui_root = HOME / webui_dir_name
             extension_dir = webui_root / paths[4]
@@ -163,7 +165,6 @@ class AnxietyUI:
             if key in self.widgets:
                 widget_values[key] = [cb.description for cb in self.widgets[key] if cb.value]
         
-        # Save home path for other scripts to use
         js.save(str(SETTINGS_PATH), 'ENVIRONMENT.home_path', str(Path.home()))
         js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
         update_current_webui(widget_values['change_webui'])
