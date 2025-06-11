@@ -1,29 +1,25 @@
-#
-# This script represents the new, multi-stage UI logic - VERSION 2
-#
-# It should be saved as 'widgets-en.py' and executed by the main bootstrap cell.
-#
-
 import ipywidgets as widgets
 from IPython.display import display, clear_output
 from pathlib import Path
 import sys
-import os # Imported to check for Kaggle environment
+import os
+import runpy
 
 # --- Configuration & Environment Detection ---
 ANXETY_ROOT = Path('/content/ANXETY')
+IS_COLAB = 'google.colab' in sys.modules
 
-# --- ENHANCEMENT: More detailed environment detection ---
-def detect_environment():
-    if 'google.colab' in sys.modules:
-        return "Google Colab"
-    elif 'KAGGLE_KERNEL_RUN_TYPE' in os.environ:
-        return "Kaggle"
-    else:
-        return "Local / Unknown"
+# --- Helper function to run backend logic ---
+def run_downloader(urls):
+    if str(ANXETY_ROOT) not in sys.path:
+        sys.path.insert(0, str(ANXETY_ROOT))
+    from modules.Manager import m_download
+    print(f"Starting download for {len(urls)} items...")
+    for url in urls:
+        if url.strip(): # Ensure the line is not empty
+            m_download(url, log=True)
+    print("✅ Custom file download complete.")
 
-PLATFORM = detect_environment()
-IS_COLAB = (PLATFORM == "Google Colab")
 
 # --- UI Creation Functions ---
 
@@ -31,7 +27,7 @@ def create_stage1_ui():
     """
     Creates and displays the initial Setup UI with the custom header and action buttons.
     """
-    # --- 1. Custom CSS for Styling (with button enhancements) ---
+    # --- 1. Custom CSS for Styling ---
     header_css = widgets.HTML("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto+Mono&display=swap');
@@ -70,7 +66,6 @@ def create_stage1_ui():
         .status-item strong {
             color: #ff9999;
         }
-        /* --- NEW: Button Styling --- */
         .metal-button {
             background-color: #222 !important;
             color: #ff8888 !important;
@@ -78,7 +73,6 @@ def create_stage1_ui():
             font-weight: bold !important;
             transition: all 0.2s ease-in-out;
             margin: 5px;
-            /* --- NEW: Making buttons bigger --- */
             font-size: 14px !important;
             padding: 8px 16px !important;
             min-width: 150px;
@@ -92,10 +86,23 @@ def create_stage1_ui():
             display: flex;
             justify-content: center;
         }
+        .custom-downloader-container {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #333;
+            margin-top: 10px;
+        }
     </style>
     """)
 
-    # --- 2. Dynamic Header Content (with more info) ---
+    # --- 2. Dynamic Header Content ---
+    def detect_environment():
+        if 'google.colab' in sys.modules: return "Google Colab"
+        if 'KAGGLE_KERNEL_RUN_TYPE' in os.environ: return "Kaggle"
+        return "Local / Unknown"
+
+    PLATFORM = detect_environment()
     drive_status = "Mounted" if Path('/content/drive/MyDrive').exists() else "Not Mounted"
     venv_status = "✅ Found" if Path('/content/venv').exists() else "❌ Not Found"
     header_html = widgets.HTML(f"""
@@ -111,7 +118,7 @@ def create_stage1_ui():
     """)
 
     # --- 3. Action Buttons and Handlers ---
-    content_area = widgets.VBox([])
+    content_area = widgets.VBox([]) # This VBox will hold the dynamic content.
 
     def connect_drive_click(b):
         if IS_COLAB:
@@ -127,33 +134,61 @@ def create_stage1_ui():
             print("Drive mounting is only available in Google Colab.")
 
     def open_custom_files_click(b):
+        # This function now builds the real Custom Files UI
         with content_area:
             clear_output(wait=True)
-            display(widgets.HTML("<h3>Extra File Downloader (Placeholder)</h3><p>This section will contain a text area for URLs and a download button.</p>"))
+            
+            custom_urls_textarea = widgets.Textarea(
+                placeholder='Paste one URL per line...',
+                layout=widgets.Layout(width='99%', height='150px')
+            )
+            
+            download_button = widgets.Button(description="Start Download", icon="download")
+            download_button.add_class("metal-button")
+            
+            output_widget = widgets.Output()
+
+            def on_download_click(btn):
+                with output_widget:
+                    clear_output()
+                    urls = custom_urls_textarea.value.split('\\n')
+                    run_downloader(urls)
+
+            download_button.on_click(on_download_click)
+
+            # Assemble and display the UI for this section
+            downloader_ui = widgets.VBox([
+                widgets.HTML("<h4>Extra File Downloader</h4>"),
+                custom_urls_textarea,
+                download_button,
+                output_widget
+            ])
+            downloader_ui.add_class("custom-downloader-container")
+            display(downloader_ui)
 
     def continue_to_main_ui_click(b):
         with content_area:
             clear_output(wait=True)
             display(widgets.HTML("<h3>Main Asset Selector (Placeholder)</h3><p>The full UI with models, LoRAs, etc., will be built here in our next step.</p>"))
 
-    # Create Buttons
-    btn_gdrive = widgets.Button(description="Connect Drive", icon="google-drive", tooltip="Mount Google Drive")
-    btn_gdrive.add_class("metal-button")
-    btn_gdrive.on_click(connect_drive_click)
+    # Create and style the main action buttons
+    buttons_to_display = []
+    if IS_COLAB:
+        btn_gdrive = widgets.Button(description="Connect Drive", icon="google-drive", tooltip="Mount Google Drive")
+        btn_gdrive.add_class("metal-button")
+        btn_gdrive.on_click(connect_drive_click)
+        buttons_to_display.append(btn_gdrive)
 
     btn_custom_files = widgets.Button(description="Custom Files", icon="download", tooltip="Download extra files from URLs")
     btn_custom_files.add_class("metal-button")
     btn_custom_files.on_click(open_custom_files_click)
+    buttons_to_display.append(btn_custom_files)
 
     btn_continue = widgets.Button(description="Continue", icon="arrow-down", tooltip="Proceed to main asset selection")
     btn_continue.add_class("metal-button")
     btn_continue.on_click(continue_to_main_ui_click)
-
-    buttons_to_display = [btn_custom_files, btn_continue]
-    if IS_COLAB:
-        buttons_to_display.insert(0, btn_gdrive)
+    buttons_to_display.append(btn_continue)
     
-    # --- NEW: Centering the buttons ---
     button_bar = widgets.HBox(buttons_to_display)
     centered_button_bar = widgets.Box([button_bar], layout=widgets.Layout(display='flex', justify_content='center'))
 
@@ -162,6 +197,6 @@ def create_stage1_ui():
     stage1_container = widgets.VBox([header_css, header_html, centered_button_bar, content_area])
     display(stage1_container)
 
-
 # --- Main Execution ---
+# When this script is run, it will start by showing the Stage 1 UI.
 create_stage1_ui()
