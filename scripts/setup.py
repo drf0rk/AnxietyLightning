@@ -1,127 +1,68 @@
-# /content/ANXETY/scripts/setup.py (Definitive Final Version for Notebooks)
-
-import os
+#
+# setup.py - The Project Downloader
+# This script's only job is to download the project files from GitHub.
+#
+import subprocess
+import shlex
 import sys
-import json
-import time
-import argparse
 from pathlib import Path
-import asyncio
-import aiohttp
-from tqdm.auto import tqdm
-import nest_asyncio
 
-# Apply the patch to allow nested asyncio loops
-nest_asyncio.apply()
+# --- Configuration ---
+# The GitHub repository to download from. Format: 'user/repo'
+REPO_URL = "drf0rk/AnxietyLightning"
+# The branch to download.
+BRANCH = "main"
+# The destination directory.
+DEST_DIR = Path("/content/ANXETY")
 
-# --- Platform Detection and Path Setup ---
-def detect_platform():
-    if 'google.colab' in sys.modules: return 'colab'
-    if os.path.exists('/kaggle'): return 'kaggle'
-    if os.environ.get('LIGHTNING_AI') or os.path.exists('/teamspace'): return 'lightning'
-    return 'local'
-
-def get_home_path(platform):
-    if platform == 'lightning':
-        base_path = Path('/teamspace/studios/this_studio')
-        return base_path if base_path.exists() else Path.home() / 'workspace'
-    if platform == 'colab': return Path('/content')
-    if platform == 'kaggle': return Path('/kaggle/working')
-    return Path.cwd()
-
-CURRENT_PLATFORM = detect_platform()
-HOME = get_home_path(CURRENT_PLATFORM)
-ANXETY_ROOT = HOME / 'ANXETY'
-SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
-ANXETY_ROOT.mkdir(parents=True, exist_ok=True)
-
-# --- JSON Utilities ---
-def save_json(filepath, data):
-    existing_data = {}
-    if filepath.exists():
-        try:
-            with open(filepath, 'r') as f: existing_data = json.load(f)
-        except json.JSONDecodeError: pass
-    for key, value in data.items():
-        if key in existing_data and isinstance(existing_data[key], dict) and isinstance(value, dict):
-            existing_data[key].update(value)
+def run_command(command, description):
+    """Runs a shell command and prints its status."""
+    print(f"🔩 Executing: {description}...")
+    try:
+        process = subprocess.Popen(
+            shlex.split(command),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        for line in iter(process.stdout.readline, ''):
+            print(f"  > {line.strip()}")
+        process.wait()
+        if process.returncode == 0:
+            print(f"✅ Success: {description} completed.")
+            return True
         else:
-            existing_data[key] = value
-    with open(filepath, 'w') as f: json.dump(existing_data, f, indent=4)
-
-def read_json(filepath, key, default=None):
-    if not filepath.exists(): return default
-    try:
-        with open(filepath, 'r') as f: data = json.load(f)
-        for k in key.split('.'): data = data[k]
-        return data
-    except (json.JSONDecodeError, KeyError): return default
-
-# --- Main Logic ---
-def create_environment_data():
-    platform_name_map = {'colab': 'Google Colab', 'kaggle': 'Kaggle', 'lightning': 'Lightning AI', 'local': 'Local'}
-    return {
-        'ENVIRONMENT': {
-            'env_name': platform_name_map.get(CURRENT_PLATFORM, 'Unknown'),
-            'home_path': str(HOME),
-            'scr_path': str(ANXETY_ROOT),
-            'venv_path': str(HOME / 'venv'),
-            'start_timer': read_json(SETTINGS_PATH, 'ENVIRONMENT.start_timer', int(time.time())),
-        }
-    }
-
-async def download_file(session, url, path):
-    try:
-        async with session.get(url) as resp:
-            resp.raise_for_status()
-            content = await resp.read()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(content)
+            print(f"❌ Error: {description} failed with code {process.returncode}.")
+            return False
+    except FileNotFoundError:
+        print(f"❌ Error: Command not found for '{description}'. Is the required tool installed?")
+        return False
     except Exception as e:
-        print(f"Failed to download {url}: {e}", file=sys.stderr)
-
-async def download_all_files(fork_repo, branch):
-    base_url = f"https://raw.githubusercontent.com/{fork_repo}/{branch}"
-    # --- FIX: Added the missing __season.py module ---
-    files_to_download = {
-        'modules/Manager.py': 'modules/Manager.py', 'modules/CivitaiAPI.py': 'modules/CivitaiAPI.py',
-        'modules/json_utils.py': 'modules/json_utils.py', 'modules/webui_utils.py': 'modules/webui_utils.py',
-        'modules/widget_factory.py': 'modules/widget_factory.py', 'modules/__season.py': 'modules/__season.py',
-        'scripts/UIs/A1111.py': 'scripts/UIs/A1111.py', 'scripts/UIs/Forge.py': 'scripts/UIs/Forge.py',
-        'scripts/UIs/ReForge.py': 'scripts/UIs/ReForge.py', 'scripts/UIs/ComfyUI.py': 'scripts/UIs/ComfyUI.py',
-        'scripts/UIs/SD-UX.py': 'scripts/UIs/SD-UX.py',
-        'scripts/en/widgets-en.py': 'scripts/en/widgets-en.py', 'scripts/en/downloading-en.py': 'scripts/en/downloading-en.py',
-        'scripts/launch.py': 'scripts/launch.py', 'scripts/_models-data.py': 'scripts/_models-data.py',
-        'scripts/_xl-models-data.py': 'scripts/_xl-models-data.py', 'scripts/_loras-data.py': 'scripts/_loras-data.py',
-        'CSS/main-widgets.css': 'CSS/main-widgets.css', 'JS/main-widgets.js': 'JS/main-widgets.js',
-        'CSS/auto-cleaner.css': 'CSS/auto-cleaner.css', 'CSS/download-result.css': 'CSS/download-result.css'
-    }
-    # --- END FIX ---
-    
-    async with aiohttp.ClientSession() as session:
-        tasks = [download_file(session, f"{base_url}/{remote}", ANXETY_ROOT / local) for remote, local in files_to_download.items()]
-        for f in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Deploying scripts"): await f
+        print(f"❌ An unexpected error occurred: {e}")
+        return False
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-f', '--fork', type=str, default='drf0rk/AnxietyLightning', help='Project fork')
-    parser.add_argument('-b', '--branch', type=str, default='main', help='Branch to download from')
-    parser.add_argument('--lang', type=str, default='en')
-    args, _ = parser.parse_known_args()
+    """Main setup function."""
+    print("--- Starting Project Setup ---")
+    DEST_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("🚀 Initializing environment...")
-    
-    env_data = create_environment_data()
-    env_data['ENVIRONMENT']['fork'] = args.fork
-    env_data['ENVIRONMENT']['branch'] = args.branch
-    save_json(SETTINGS_PATH, env_data)
-    
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(download_all_files(args.fork, args.branch))
+    # 1. Ensure degit is installed.
+    # We first try to run it. If it fails, we assume it's not installed.
+    if subprocess.run(['degit', '--version'], capture_output=True).returncode != 0:
+        print("🔧 'degit' not found. Attempting to install via npm...")
+        if not run_command("npm install -g degit", "Install degit"):
+            print("❌ Critical error: Could not install degit. Please ensure npm is available.", file=sys.stderr)
+            sys.exit(1)
 
-    print("✅ Environment setup complete.")
-    print(f"✔️ Project Root: {HOME}")
-    print(f"✔️ ANXETY scripts installed in: {ANXETY_ROOT}")
+    # 2. Download the repository.
+    print(f"\nDownloading repository '{REPO_URL}'...")
+    degit_command = f"degit {REPO_URL}#{BRANCH} {DEST_DIR} --force"
+    if not run_command(degit_command, "Download repository files"):
+        print("❌ Critical error: Failed to download repository files.", file=sys.stderr)
+        sys.exit(1)
+        
+    print("\n✅ All project files have been downloaded successfully.")
+    print("--- Project Setup Complete ---")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
