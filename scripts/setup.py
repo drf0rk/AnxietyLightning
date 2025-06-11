@@ -23,7 +23,10 @@ def run_command(command, description):
             encoding='utf-8',
             errors='replace'
         )
-        for line in iter(process.stdout.readline, ''):
+        while True:
+            line = process.stdout.readline()
+            if not line:
+                break
             print(f"  > {line.strip()}")
         
         process.wait()
