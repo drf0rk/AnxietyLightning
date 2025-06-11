@@ -1,93 +1,62 @@
-# /content/ANXETY/scripts/launch.py (Corrected)
+# /content/ANXETY/scripts/launch.py (Corrected Pathing Logic)
 
 import os
 import sys
 from pathlib import Path
-from IPython import get_ipython
-from datetime import timedelta
-import subprocess
-import requests
-import argparse
-import logging
-import asyncio
-import shlex
 import time
-import json
 import yaml
-import re
+from IPython import get_ipython
 
-# --- Pathing ---
+# --- Pathing & Settings ---
 try:
+    # When run from /content/ANXETY/scripts/, the project root is one level up.
     ANXETY_ROOT = Path(__file__).resolve().parents[1]
 except NameError:
-    ANXETY_ROOT = Path.cwd()
+    # Fallback for environments where __file__ is not defined.
+    ANXETY_ROOT = Path('/content/ANXETY')
 
 if str(ANXETY_ROOT / 'modules') not in sys.path:
     sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
 
-# --- Imports ---
-from modules.TunnelHub import Tunnel
 import modules.json_utils as js
 
-# --- Constants & Globals ---
-CD = os.chdir
-HOME = Path.home()
-VENV = HOME / 'venv'
-SCR_PATH = HOME / 'ANXETY'
-SETTINGS_PATH = SCR_PATH / 'settings.json'
+SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 
-# --- CORRECTED load_settings FUNCTION ---
-def load_settings(path):
-    """Load settings from a JSON file, now with defaults."""
-    try:
-        # The 'or {}' ensures that if a section is missing, we get an empty dict instead of None
-        env_settings = js.read(path, 'ENVIRONMENT') or {}
-        widget_settings = js.read(path, 'WIDGETS') or {}
-        webui_settings = js.read(path, 'WEBUI') or {}
-        
-        return {**env_settings, **widget_settings, **webui_settings}
-    except Exception as e:
-        print(f"Error loading settings: {e}")
-        return {}
+# --- Direct & Robust Settings Loading ---
+webui_settings = js.read(SETTINGS_PATH, 'WEBUI', {})
+widget_settings = js.read(SETTINGS_PATH, 'WIDGETS', {})
+env_settings = js.read(SETTINGS_PATH, 'ENVIRONMENT', {})
 
-# Load settings and update local scope
-settings = load_settings(SETTINGS_PATH)
-locals().update(settings)
+# --- Explicitly Define Variables from Settings ---
+# CRITICAL FIX: Use the saved home_path, not Path.home()
+HOME = Path(env_settings.get('home_path', '/content'))
 
-# Ensure essential keys exist
-UI = locals().get('current', 'Forge') # Default to Forge if not found
-WEBUI = locals().get('webui_path', str(HOME / UI))
-commandline_arguments = locals().get('commandline_arguments', '')
-theme_accent = locals().get('theme_accent', 'anxety')
-adetailer_dir = locals().get('adetailer_dir', '')
-zrok_token = locals().get('zrok_token', None)
-ngrok_token = locals().get('ngrok_token', None)
-ENV_NAME = locals().get('env_name', 'Google Colab')
-
+# Use .get() with defaults to prevent errors if keys are missing
+UI = webui_settings.get('current', 'Forge')
+WEBUI_PATH = Path(webui_settings.get('webui_path', str(HOME / UI)))
+commandline_arguments = widget_settings.get('commandline_arguments', '')
+theme_accent = widget_settings.get('theme_accent', 'anxety')
 
 # --- VENV PATH ACTIVATION ---
 # This needs to run after settings are loaded to get the correct UI and python version
 is_classic_ui = UI == 'Classic'
 python_version = 'python3.11' if is_classic_ui else 'python3.10'
-BIN = str(VENV / 'bin')
-PKG = str(VENV / f'lib/{python_version}/site-packages')
+VENV_PATH = HOME / 'venv'
+BIN_PATH = VENV_PATH / 'bin'
+PKG_PATH = VENV_PATH / f'lib/{python_version}/site-packages'
 
-if BIN not in os.environ['PATH']:
-    os.environ['PATH'] = f"{BIN}:{os.environ['PATH']}"
-if PKG not in os.environ['PYTHONPATH']:
-    os.environ['PYTHONPATH'] = f"{PKG}:{os.environ.get('PYTHONPATH', '')}"
+if str(BIN_PATH) not in os.environ['PATH']:
+    os.environ['PATH'] = f"{BIN_PATH}:{os.environ['PATH']}"
+if str(PKG_PATH) not in os.environ.get('PYTHONPATH', ''):
+    os.environ['PYTHONPATH'] = f"{PKG_PATH}:{os.environ.get('PYTHONPATH', '')}"
 
-# --- Helper Functions ---
 def get_launch_command():
-    """Construct launch command based on configuration"""
+    """Constructs the final launch command with all arguments."""
     base_args = commandline_arguments
-    common_args = ' --enable-insecure-extension-access --disable-console-progressbars --theme dark'
     
-    if 'KAGGLE_KERNEL_RUN_TYPE' in os.environ:
-        common_args += f" --encrypt-pass=ha4ez7147b5vdlu5u8f8flrllgn61kpbgbh6emil"
-
-    if theme_accent != 'anxety':
-        common_args += f" --anxety {theme_accent}"
+    # Add theme accent if not the default
+    if theme_accent != 'anxety' and UI != 'ComfyUI':
+         base_args += f" --anxety-theme={theme_accent}"
 
     if UI == 'ComfyUI':
         # For ComfyUI, we construct the extra model paths yaml
@@ -101,42 +70,43 @@ def get_launch_command():
                 'controlnet': [str(HOME / 'sd_models_shared/models/ControlNet')]
             }
         }
-        with open(os.path.join(WEBUI, 'extra_model_paths.yaml'), 'w') as f:
+        with open(WEBUI_PATH / 'extra_model_paths.yaml', 'w') as f:
             yaml.dump(model_paths_yaml, f)
         return f"python3 main.py {base_args}"
     else:
         # For A1111-family UIs, we use explicit path arguments
-        shared_data_dir = str(HOME / 'sd_models_shared/models')
-        return (f"python3 launch.py {base_args}{common_args} "
-                f"--ckpt-dir \"{shared_data_dir}/Stable-diffusion\" "
-                f"--vae-dir \"{shared_data_dir}/VAE\" "
-                f"--lora-dir \"{shared_data_dir}/Lora\" "
-                f"--embeddings-dir \"{shared_data_dir}/embeddings\" "
-                f"--controlnet-dir \"{shared_data_dir}/ControlNet\"")
-
+        shared_models_dir = HOME / 'sd_models_shared' / 'models'
+        return (f"python3 launch.py {base_args} "
+                f"--ckpt-dir \"{shared_models_dir / 'Stable-diffusion'}\" "
+                f"--vae-dir \"{shared_models_dir / 'VAE'}\" "
+                f"--lora-dir \"{shared_models_dir / 'Lora'}\" "
+                f"--embeddings-dir \"{shared_models_dir / 'embeddings'}\" "
+                f"--controlnet-dir \"{shared_models_dir / 'ControlNet'}\"")
 
 # --- Main Execution ---
 if __name__ == '__main__':
     print('Please Wait, Launching WebUI...\n')
-    os.environ['PYTHONWARNINGS'] = 'ignore'
     
+    if not WEBUI_PATH.exists() or not WEBUI_PATH.is_dir():
+        print(f"❌ FATAL ERROR: WebUI directory not found at the expected path: {WEBUI_PATH}")
+        print("Please re-run the setup process from the beginning.")
+        sys.exit(1)
+
     # Change to the WebUI directory
-    os.chdir(WEBUI)
+    os.chdir(WEBUI_PATH)
     
-    # Get the final command
     LAUNCHER_COMMAND = get_launch_command()
-    print(f"🚀 Launching with command: {LAUNCHER_COMMAND}")
+    print(f"🚀 Launching {UI} with command: {LAUNCHER_COMMAND}")
 
     # Use get_ipython().system_raw to launch in the background and prevent I/O blocking
-    # This is a critical fix for stability in notebook environments.
     ipython = get_ipython()
     ipython.system_raw(f"{LAUNCHER_COMMAND} &")
 
-    # Keep-alive loop to prevent the cell from finishing and killing the process
+    # Keep-alive loop
     print("\n✅ WebUI is launching in the background. The public URL will appear shortly.")
-    print("This cell will keep running to maintain the connection. Interrupt the kernel to stop.")
+    print("This cell will keep running to maintain the connection. Interrupt the kernel (Stop button) to end the session.")
     try:
         while True:
-            time.sleep(3600) # Sleep for a long time
+            time.sleep(3600)
     except KeyboardInterrupt:
         print("\n⏹️ Cell interrupted by user. The WebUI process may still be running in the background.")
