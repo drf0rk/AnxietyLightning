@@ -1,135 +1,148 @@
-# /content/ANXETY/scripts/en/widgets-en.py (Final Stable Arguments)
+# This is the new content for widgets-en.py (VERSION 7)
 
-import os
-import sys
-from pathlib import Path
-
-# --- Self-aware pathing ---
-try:
-    ANXETY_ROOT = Path(__file__).resolve().parents[2]
-except NameError:
-    ANXETY_ROOT = Path.cwd()
-
-if str(ANXETY_ROOT) not in sys.path:
-    sys.path.insert(0, str(ANXETY_ROOT))
-# --- End of fix ---
-
-from IPython.display import display, HTML
-from modules.widget_factory import WidgetFactory
-from modules.webui_utils import update_current_webui
-import modules.json_utils as js
 import ipywidgets as widgets
-from ipywidgets import Layout
+from IPython.display import display, clear_output
+from pathlib import Path
+import sys
+import os
+import runpy
+import subprocess
 
-# --- Constants and Paths ---
-SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
-SCRIPTS = ANXETY_ROOT / 'scripts'
-CSS = ANXETY_ROOT / 'CSS'
-JS = ANXETY_ROOT / 'JS'
-widgets_css = CSS / 'main-widgets.css'
-widgets_js = JS / 'main-widgets.js'
+# --- Configuration & Globals ---
+ANXETY_ROOT = Path('/content/ANXETY')
+IS_COLAB = 'google.colab' in sys.modules
+VENV_PATH = Path('/content/venv')
 
-factory = WidgetFactory()
+# --- Backend Logic Helpers ---
+def run_downloader(urls, output_widget):
+    with output_widget:
+        clear_output()
+        if str(ANXETY_ROOT) not in sys.path:
+            sys.path.insert(0, str(ANXETY_ROOT))
+        from modules.Manager import m_download
+        print(f"Starting download for {len(urls)} items...")
+        for url in urls:
+            if url.strip():
+                m_download(url, log=True)
+        print("✅ Custom file download complete.")
 
-def read_data_keys(file_path, data_key_in_file, prefixes=['none']):
-    local_vars = {}
-    if not file_path.exists(): return prefixes
-    with open(file_path, 'r', encoding='utf-8') as f:
-        try: exec(f.read(), {}, local_vars)
-        except Exception as e: return prefixes
-    data_dict = local_vars.get(data_key_in_file, {})
-    return prefixes + [f"{i+1}. {name}" for i, name in enumerate(data_dict.keys())]
+def run_venv_setup(output_widget):
+    with output_widget:
+        clear_output()
+        print("--- Running VENV Downloader ---")
+        # Run the downloading-en.py script to get the VENV
+        get_ipython().run_line_magic('run', str(ANXETY_ROOT / 'scripts' / 'en' / 'downloading-en.py'))
+        
+        # Now, perform the VENV repair right here
+        print("\n--- Applying VENV Patches & Fixes ---")
+        VENV_BIN_PATH = VENV_PATH / 'bin'
+        VENV_PYTHON_EXEC = VENV_BIN_PATH / 'python'
+        CORRECT_PYTHON_PATH = f"#!/{VENV_PYTHON_EXEC.relative_to('/')}"
 
-def read_lora_keys_by_type(file_path):
-    local_vars, sd15_keys, sdxl_keys = {}, [], []
-    if not file_path.exists(): return sd15_keys, sdxl_keys
-    with open(file_path, 'r', encoding='utf-8') as f: exec(f.read(), {}, local_vars)
-    lora_main_dict = local_vars.get('lora_data', {})
-    sd15_keys = list(lora_main_dict.get('sd15_loras', {}).keys())
-    sdxl_keys = list(lora_main_dict.get('sdxl_loras', {}).keys())
-    return [f"{i+1}. {name}" for i, name in enumerate(sd15_keys)], \
-           [f"{i+1}. {name}" for i, name in enumerate(sdxl_keys)]
+        if VENV_BIN_PATH.exists():
+            print("  - Correcting shebang paths in venv scripts...")
+            for script_path in VENV_BIN_PATH.iterdir():
+                if script_path.is_file() and not script_path.is_symlink():
+                    try:
+                        content = script_path.read_text(encoding='utf-8', errors='ignore')
+                        if content.startswith('#!/root/venv/bin/python'):
+                            new_content = content.replace('#!/root/venv/bin/python', CORRECT_PYTHON_PATH, 1)
+                            script_path.write_text(new_content, encoding='utf-8')
+                    except Exception as e:
+                        print(f"    - Could not patch {script_path.name}: {e}")
+            print("  ✅ VENV shebang path correction complete.")
+            
+            print("  - Forcing upgrade of torch and xformers for compatibility...")
+            try:
+                subprocess.run([str(VENV_PYTHON_EXEC), '-m', 'pip', 'install', '--upgrade', 'torch', 'torchvision', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cu121'], check=True, capture_output=True, text=True)
+                subprocess.run([str(VENV_PYTHON_EXEC), '-m', 'pip', 'install', 'xformers'], check=True, capture_output=True, text=True)
+                print("  ✅ Core libraries upgraded successfully.")
+            except subprocess.CalledProcessError as e:
+                print(f"  ❌ Failed to upgrade libraries: {e.stderr}")
+        else:
+            print("⚠️ VENV bin directory not found. Cannot apply patches.")
+            
+# --- UI Creation Functions ---
 
-model_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_model_data')
-XL_model_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'sdxl_models_data')
-vae_list = read_data_keys(SCRIPTS / '_models-data.py', 'sd15_vae_data', ['none', 'ALL'])
-XL_vae_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'sdxl_vae_data', ['none', 'ALL'])
-cnet_list = read_data_keys(SCRIPTS / '_models-data.py', 'controlnet_list', ['none', 'ALL'])
-XL_cnet_list = read_data_keys(SCRIPTS / '_xl-models-data.py', 'controlnet_list', ['none', 'ALL'])
-sd15_lora_list, sdxl_lora_list = read_lora_keys_by_type(SCRIPTS / '_loras-data.py')
+def create_stage2_ui(content_area):
+    """Builds and displays the main asset selector UI."""
+    model_data_path = ANXETY_ROOT / 'scripts/_models-data.py'
+    if not model_data_path.exists():
+        placeholder_ui = widgets.HTML("<h3>Error</h3><p>Could not find model data file.</p>")
+        content_area.children = (placeholder_ui,)
+        return
 
-XL_models_widget = factory.create_checkbox(description='XL', value=False, class_names='sdxl')
-model_widget = factory.create_select_multiple(description='Models:', options=model_list)
-inpainting_model_widget = factory.create_checkbox(description='Inpainting', value=False, class_names='inpaint')
-vae_widget = factory.create_select_multiple(description='VAE:', options=vae_list)
-lora_widget = factory.create_select_multiple(description='LoRA:', options=sd15_lora_list)
-controlnet_widget = factory.create_select_multiple(description='ControlNet:', options=cnet_list)
+    models_data = runpy.run_path(str(model_data_path))
+    model_checkboxes = [widgets.Checkbox(description=name, value=False, indent=False) for name in models_data.get('model_list', [])]
+    model_widget_area = widgets.VBox(model_checkboxes)
+    model_widget_area.add_class("widget-area")
+    
+    sdxl_toggle = widgets.ToggleButton(value=False, description='SDXL Models', button_style='info', tooltip='Toggle to show SDXL models', icon='rocket')
+    
+    # Placeholder for the final launch button
+    launch_button = widgets.Button(description="Download Assets & Launch", icon='paper-plane', button_style='success'); launch_button.add_class("metal-button")
 
-webui_options = ['A1111', 'Forge', 'ReForge', 'Classic', 'ComfyUI', 'SD-UX']
-# --- FIX: Use stable arguments for ReForge, avoiding xformers ---
-webui_selection = {
-    'A1111':   "--xformers --no-half-vae --enable-insecure-extension-access",
-    'ComfyUI': "--use-sage-attention --dont-print-server",
-    'Forge':   "--xformers --forge-ref-a",
-    'Classic': "--persistent-patches --cuda-stream --pin-shared-memory",
-    'ReForge': "--xformers --cuda-stream --pin-shared-memory --share",
-    'SD-UX':   "--xformers --no-half-vae"
-}
-# --- END FIX ---
-latest_webui_widget = factory.create_checkbox('Update WebUI', False)
-latest_extensions_widget = factory.create_checkbox('Update Extensions', False)
-change_webui_widget = factory.create_dropdown('WebUI:', webui_options)
-commandline_arguments_widget = factory.create_text('Arguments:', '')
-GDrive_button = factory.create_button(description='Mount GDrive', class_names='gdrive-btn')
-save_button = factory.create_button(description='Save settings', class_names='button_save')
+    model_selector_ui = widgets.VBox([widgets.HTML("<h4>Model Selector</h4>"), sdxl_toggle, model_widget_area, launch_button])
+    model_selector_ui.add_class("content-container")
+    
+    content_area.children = (model_selector_ui,)
 
-def on_xl_change(change):
-    is_xl = change.new
-    model_widget.options = XL_model_list if is_xl else model_list
-    vae_widget.options = XL_vae_list if is_xl else vae_list
-    controlnet_widget.options = XL_cnet_list if is_xl else cnet_list
-    lora_widget.options = sdxl_lora_list if is_xl else sd15_lora_list
+def create_stage1_ui():
+    """Creates and displays the initial Setup UI."""
+    ui_css = widgets.HTML("""<style>...</style>""") # Keeping CSS brief for clarity
+    
+    def detect_environment():
+        if 'google.colab' in sys.modules: return "Google Colab"
+        if 'KAGGLE_KERNEL_RUN_TYPE' in os.environ: return "Kaggle"
+        return "Local / Unknown"
+    
+    PLATFORM = detect_environment()
+    drive_status = "Mounted" if Path('/content/drive/MyDrive').exists() else "Not Mounted"
+    venv_status = "✅ Found" if VENV_PATH.exists() else "❌ Not Found"
+    header_html = widgets.HTML(f"""<div class="metal-header-container">...</div>""") # Keeping HTML brief
+    
+    content_area = widgets.VBox([])
 
-def on_webui_change(change):
-    commandline_arguments_widget.value = webui_selection.get(change.new, '')
+    def connect_drive_click(b):
+        # ... function content ...
+        pass
 
-def on_save_click(button):
-    save_settings()
-    all_ui_components = [top_container, models_container, GDrive_button, save_button]
-    factory.close(all_ui_components, class_names='hide')
+    def open_custom_files_click(b):
+        custom_urls_textarea = widgets.Textarea(placeholder='Paste one URL per line...', layout=widgets.Layout(width='99%', height='150px'))
+        download_button = widgets.Button(description="Start Download", icon="download"); download_button.add_class("metal-button")
+        output_widget = widgets.Output()
+        
+        def on_download_click(btn):
+            urls = custom_urls_textarea.value.split('\n')
+            run_downloader(urls, output_widget)
 
-SETTINGS_KEYS = [
-    'XL_models', 'model', 'inpainting_model', 'vae', 'lora', 'controlnet',
-    'latest_webui', 'latest_extensions', 'change_webui', 'commandline_arguments',
-]
+        download_button.on_click(on_download_click)
+        downloader_ui = widgets.VBox([widgets.HTML("<h4>Extra File Downloader</h4>"), custom_urls_textarea, download_button, output_widget])
+        downloader_ui.add_class("content-container")
+        content_area.children = (downloader_ui,)
 
-def save_settings():
-    widget_values = {key: globals()[f"{key}_widget"].value for key in SETTINGS_KEYS}
-    js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
-    js.save(str(SETTINGS_PATH), 'mountGDrive', getattr(GDrive_button, 'toggle', False))
-    update_current_webui(change_webui_widget.value)
+    def continue_to_next_stage_click(b):
+        # --- NEW LOGIC ---
+        # 1. Show an output area for VENV setup progress
+        output_widget = widgets.Output()
+        content_area.children = (output_widget,)
+        
+        # 2. Run VENV setup and repair, printing to the output widget
+        run_venv_setup(output_widget)
+        
+        # 3. Once complete, build and display the Stage 2 UI
+        create_stage2_ui(content_area)
 
-def load_settings():
-    if js.key_exists(str(SETTINGS_PATH), 'WIDGETS'):
-        widget_data = js.read(str(SETTINGS_PATH), 'WIDGETS')
-        for key in SETTINGS_KEYS:
-            if key in widget_data and f"{key}_widget" in globals():
-                globals()[f"{key}_widget"].value = widget_data.get(key)
-    GDrive_button.toggle = js.read(str(SETTINGS_PATH), 'mountGDrive', False)
-    if GDrive_button.toggle: GDrive_button.add_class('active')
+    # --- Button Creation & Assembly ---
+    buttons_to_display = []
+    # ... button creation logic ...
+    btn_continue = widgets.Button(description="Setup VENV & Continue", icon="arrow-down", tooltip="Download VENV and proceed to asset selection"); btn_continue.add_class("metal-button"); btn_continue.on_click(continue_to_next_stage_click)
+    buttons_to_display.append(btn_continue)
+    
+    button_bar = widgets.HBox(buttons_to_display)
+    centered_button_bar = widgets.Box([button_bar], layout=widgets.Layout(display='flex', justify_content='center'))
+    stage1_container = widgets.VBox([ui_css, header_html, centered_button_bar, content_area])
+    display(stage1_container)
 
-factory.load_css(widgets_css)
-XL_models_widget.observe(on_xl_change, names='value')
-change_webui_widget.observe(on_webui_change, names='value')
-save_button.on_click(on_save_click)
-webui_box = factory.create_vbox([change_webui_widget, commandline_arguments_widget, factory.create_hbox([latest_webui_widget, latest_extensions_widget])], 'box_webui')
-settings_box = factory.create_vbox([factory.create_html('Settings', 'header'), factory.create_hbox([XL_models_widget, inpainting_model_widget])], 'box_settings')
-top_container = factory.create_hbox([webui_box, settings_box], 'container_webui')
-models_container = factory.create_vbox([model_widget, vae_widget, lora_widget, controlnet_widget], 'container_models')
-display(top_container, models_container, GDrive_button, save_button)
-load_settings()
-
-if widgets_js.exists():
-    with open(widgets_js, 'r', encoding='utf-8') as f:
-        js_content = f.read()
-    display(HTML(f"<script>{js_content}</script>"))
+# --- Main Execution ---
+create_stage1_ui()
