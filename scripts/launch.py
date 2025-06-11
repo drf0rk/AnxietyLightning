@@ -54,7 +54,7 @@ def get_launch_command():
          base_args += f" --anxety-theme={theme_accent}"
 
     if UI == 'ComfyUI':
-        # For ComfyUI, create the extra_model_paths.yaml
+        # For ComfyUI, we construct the extra model paths yaml
         model_paths_yaml = {
             'a1111': {
                 'checkpoints': [str(HOME / 'sd_models_shared/models/Stable-diffusion')],
@@ -69,7 +69,7 @@ def get_launch_command():
             yaml.dump(model_paths_yaml, f)
         return f"python3 main.py {base_args}"
     else:
-        # For A1111-family UIs, use explicit path arguments
+        # For A1111-family UIs, we use explicit path arguments
         shared_models_dir = HOME / 'sd_models_shared' / 'models'
         return (f"python3 launch.py {base_args} "
                 f"--ckpt-dir \"{shared_models_dir / 'Stable-diffusion'}\" "
