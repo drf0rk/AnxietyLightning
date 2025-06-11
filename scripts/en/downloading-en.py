@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (FINAL - Centralized Logic)
+# /content/ANXETY/scripts/en/downloading-en.py (FINAL - NameError Fix)
 
 import os
 import sys
@@ -11,11 +11,11 @@ import shutil
 
 # --- Self-aware pathing ---
 try:
-    ANXETY_ROOT = Path(__file__).resolve().parents[2]
+    ANXETY_ROOT = Path(os.path.realpath(__file__)).parents[2]
 except NameError:
-    ANXETY_ROOT = Path.cwd()
+    # This is the fallback for the interactive environment
+    ANXETY_ROOT = Path('/content/ANXETY')
 
-# Ensure modules can be imported
 if str(ANXETY_ROOT) not in sys.path: sys.path.insert(0, str(ANXETY_ROOT))
 if str(ANXETY_ROOT / 'modules') not in sys.path: sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
 
@@ -37,16 +37,60 @@ UI_ZIPS = {
 
 # --- VENV and System Dependency Management ---
 def install_system_deps():
-    if not js.key_exists(SETTINGS_PATH, 'ENVIRONMENT.system_deps_installed'):
-        print("🔧 Installing required system dependencies (aria2, lz4, etc.)...")
-        # Commands and logic for installation...
-        js.save(str(SETTINGS_PATH), 'ENVIRONMENT.system_deps_installed', True)
-    print("✅ System dependency check complete.")
+    if shutil.which('aria2c') and shutil.which('lz4') and shutil.which('pv'):
+        print("✅ System dependencies (aria2, lz4, pv) are already installed.")
+        return
+
+    print("🔧 One or more system dependencies are missing. Installing...")
+    commands = {'aria2': "apt-get -y install -qq aria2", 'lz4': "apt-get -y install -qq lz4", 'pv': "apt-get -y install -qq pv"}
+    env = os.environ.copy()
+    env['DEBIAN_FRONTEND'] = 'noninteractive'
+    
+    for pkg, cmd in commands.items():
+        try:
+            subprocess.run(shlex.split(cmd), check=True, capture_output=True, text=True, env=env)
+            print(f"  - Successfully installed {pkg}")
+        except Exception as e:
+            print(f"  - ❌ Warning: Failed to install system package '{pkg}'. Error: {e}", file=sys.stderr)
+            
+    if not shutil.which('aria2c'):
+        print("❌ CRITICAL: Failed to install 'aria2c'. The application cannot continue.", file=sys.stderr)
+        sys.exit(1)
+    print("✅ System dependency installation complete.")
 
 def check_and_install_venv():
-    # VENV checking and installation logic...
-    print("✅ VENV setup check complete.")
+    current_ui = js.read(SETTINGS_PATH, 'WEBUI.current')
+    is_classic_ui = current_ui == 'Classic'
+    required_venv_type = 'Classic' if is_classic_ui else 'Standard'
+    installed_venv_type = js.read(SETTINGS_PATH, 'ENVIRONMENT.venv_type')
 
+    if not VENV_PATH.exists() or installed_venv_type != required_venv_type:
+        if VENV_PATH.exists():
+            print("🗑️ VENV type has changed. Removing old VENV...")
+            shutil.rmtree(VENV_PATH)
+        
+        venv_url, py_version = (
+            ("https://huggingface.co/NagisaNao/ANXETY/resolve/main/python31112-venv-torch251-cu121-C-Classic.tar.lz4", '(3.11.12)')
+            if is_classic_ui else
+            ("https://huggingface.co/NagisaNao/ANXETY/resolve/main/python31017-venv-torch251-cu121-C-fca.tar.lz4", '(3.10.17)')
+        )
+        
+        print(f"♻️ Installing VENV {py_version}, this will take some time...")
+        filename = Path(urlparse(venv_url).path).name
+        venv_archive_path = HOME / filename
+        m_download(f'"{venv_url}" "{HOME}" "{filename}"', log=True)
+        
+        if not venv_archive_path.exists():
+            print(f"❌ VENV DOWNLOAD FAILED for {filename}. Cannot proceed.", file=sys.stderr); sys.exit(1)
+
+        print("  - Unpacking VENV...")
+        unpack_command = f"pv {venv_archive_path} | lz4 -d | tar xf -"
+        subprocess.run(unpack_command, shell=True, check=True, cwd=HOME, capture_output=True)
+        venv_archive_path.unlink()
+        js.save(str(SETTINGS_PATH), 'ENVIRONMENT.venv_type', required_venv_type)
+        print("✅ VENV setup complete.")
+    else:
+        print("✅ Correct VENV already exists.")
 
 def get_webui_path():
     webui_settings = js.read(SETTINGS_PATH, 'WEBUI', {})
@@ -63,7 +107,6 @@ def process_selections(selections, data_dict, prefix):
     if not isinstance(selections, (list, tuple)): return commands
     for selection in selections:
         if selection == 'none' or not selection: continue
-        # Simplified for brevity, original logic is preserved
         model_name = selection
         if model_name in data_dict:
             model_data_value = data_dict[model_name]
@@ -78,7 +121,9 @@ def main():
     install_system_deps()
     check_and_install_venv()
 
-    print(f"✅ Running download orchestrator: {__file__}")
+    # THIS LINE IS NOW FIXED
+    print("✅ Running download orchestrator...")
+    
     settings = js.read(SETTINGS_PATH, 'WIDGETS', {})
     webui_paths = js.read(SETTINGS_PATH, 'WEBUI', {})
     if not settings or not webui_paths:
@@ -88,7 +133,6 @@ def main():
     if not WEBUI_PATH or not webui_name:
         print("❌ Halting due to missing WebUI configuration."); return
 
-    # --- CENTRALIZED WEBUI INSTALL LOGIC ---
     if not WEBUI_PATH.exists():
         print(f"🚀 Unpacking Stable Diffusion | WEBUI: {webui_name}...")
         repo_url = UI_ZIPS.get(webui_name)
@@ -104,7 +148,7 @@ def main():
         print(f"  - Unzipping {webui_name} to {WEBUI_PATH}...")
         try:
             WEBUI_PATH.mkdir(parents=True, exist_ok=True)
-            subprocess.run(['unzip', '-o', str(zip_path), '-d', str(WEBUI_PATH)], check=True, capture_output=True)
+            subprocess.run(['unzip', '-q', '-o', str(zip_path), '-d', str(WEBUI_PATH)], check=True, capture_output=True)
             zip_path.unlink()
             print(f"✅ {webui_name} installation complete!")
         except Exception as e:
@@ -112,7 +156,6 @@ def main():
     else:
         print(f"🔧 WebUI directory found: {webui_name}")
 
-    # --- Asset Download Logic (unchanged) ---
     print("📦 Processing asset download selections...")
     is_xl = settings.get('sdxl_toggle', False)
     models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
