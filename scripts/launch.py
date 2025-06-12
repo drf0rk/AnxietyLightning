@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (v11 - Cloudflare Tunnel Enabled)
+# /content/ANXETY/scripts/launch.py (v12 - Production Version)
 
 import os
 import sys
@@ -107,8 +107,8 @@ if __name__ == '__main__':
             pattern=re.compile(r'https://[a-zA-Z0-9.-]+\.ngrok-free\.app'),
             name='Ngrok'
         )
-
-    # --- ADDED CLOUDFLARE TUNNEL ---
+        
+    # Add Cloudflare Tunnel
     tunneling_service.add_tunnel(
         command=f"cloudflared tunnel --url http://localhost:{tunnel_port}",
         pattern=re.compile(r'https://[a-zA-Z0-9.-]+\.trycloudflare\.com'),
