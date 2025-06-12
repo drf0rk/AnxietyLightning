@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_manager.py (Initial Gradio Manager UI)
+# /content/ANXETY/scripts/gradio_manager.py (Full Custom Downloader Implementation)
 
 import gradio as gr
 from pathlib import Path
@@ -22,6 +22,10 @@ import modules.json_utils as js
 url_pool = []
 processed_data = [] # Stores data after API calls for review
 civitai_api_instance = None # Will be initialized once
+
+# These will store the dynamically created Gradio components for the review stage
+# We'll use a dictionary where keys are original item indices and values are dicts of components
+dynamic_review_components = {} 
 
 # --- Helper Functions (copied/adapted from widgets_en.py) ---
 
@@ -83,7 +87,7 @@ def _categorize_and_write(data, asset_type, base_model, display_name, file_name,
         target_file = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_sdxl_type else '_models-data.py')
         target_dict = 'sdxl_vae_data' if is_sdxl_type else 'sd15_vae_data'
     elif asset_type == 'ControlNet':
-        target_file = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl_type else '_models-data.py') # Assuming controlnets may live in XL files
+        target_file = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_sdxl_type else '_models-data.py') # Assuming controlnets may live in XL files
         target_dict = 'controlnet_list' 
     elif asset_type in ['Embedding', 'TextualInversion']: 
         target_file = ANXETY_ROOT / 'scripts' / '_embeddings-data.py' 
@@ -178,7 +182,7 @@ def add_urls_to_pool(urls_input):
     global url_pool
     new_urls_raw = urls_input.strip()
     if not new_urls_raw:
-        return url_pool, "ℹ️ No URLs provided to add."
+        return "", "ℹ️ No URLs provided to add." # Return empty string for urls_input
     
     new_urls = [url.strip() for line in new_urls_raw.splitlines() for url in line.split(',') if url.strip()]
     
@@ -190,22 +194,26 @@ def add_urls_to_pool(urls_input):
     
     return "\n".join(url_pool), f"✅ Added {added_count} new URLs. Total: {len(url_pool)}."
 
-def process_and_display_review_stage(progress=gr.Progress()):
+def process_and_display_review_stage(urls_input_text_area): # Pass urls_input_text_area here
     """Processes URLs and returns Gradio components for the review stage."""
-    global processed_data, url_pool
+    global processed_data, url_pool, dynamic_review_components
+
+    # Update url_pool from the text area in case user manually edited it
+    url_pool = [url.strip() for line in urls_input_text_area.splitlines() for url in line.split(',') if url.strip()]
 
     if not civitai_api_instance:
-        return gr.Column(visible=False), gr.Column(visible=False), "❌ Civitai API not initialized. Check console for errors."
+        return gr.Column(visible=False), gr.Column(visible=False), gr.Markdown.update(visible=True, value="❌ Civitai API not initialized. Check console for errors."), [], gr.JSON().update(value={}) # Update signature
 
     if not url_pool:
-        return gr.Column(visible=False), gr.Column(visible=False), "⚠️ URL Pool is empty. Please add URLs first."
+        return gr.Column(visible=True), gr.Column(visible=False), gr.Markdown.update(visible=True, value="⚠️ URL Pool is empty. Please add URLs first."), [], gr.JSON().update(value={}) # Update signature
 
     processed_data = []
     messages = ["--- Starting Data Fetch for URLs ---", "Fetching data for URLs. This might take a moment..."]
     messages.append(f"URLs in pool: {url_pool}")
 
     for url_index, url in enumerate(url_pool):
-        progress((url_index / len(url_pool), "Processing URLs..."), desc=f"Processing URL {url_index + 1}/{len(url_pool)}")
+        # Gradio progress bar update
+        # progress((url_index / len(url_pool), "Processing URLs..."), desc=f"Processing URL {url_index + 1}/{len(url_pool)}")
         messages.append(f"\n  Processing URL {url_index + 1}/{len(url_pool)}: {url}")
         data = None
         try:
@@ -215,7 +223,7 @@ def process_and_display_review_stage(progress=gr.Progress()):
                 if data:
                     messages.append(f"    Civitai API returned data for: {data.name} (Type: {data.type})")
                 else:
-                    messages.append(f"    Civitai API returned no data or failed for {url}.")
+                    messages.append(f"    Civitai API returned no data or failed for {url}. This might happen for unsupported Civitai URLs (e.g., direct download links instead of model pages).")
             elif "huggingface.co" in url:
                 messages.append(f"    Detected Hugging Face URL. Guessing asset type...")
                 data = _get_huggingface_guesses(url)
@@ -237,116 +245,155 @@ def process_and_display_review_stage(progress=gr.Progress()):
 
     if not processed_data:
         messages.append("\n❌ No valid model data could be retrieved from the provided URLs. Please check URLs and try again.")
-        return gr.Column(visible=True), gr.Column(visible=False), "\n".join(messages)
+        return gr.Column(visible=True), gr.Column(visible=False), gr.Markdown.update(value="\n".join(messages)), [], gr.JSON().update(value={}) # Update signature
 
     messages.append(f"\nSuccessfully processed {len(processed_data)} URLs. Building review UI.")
     type_order = {'Checkpoint': 0, 'LORA': 1, 'VAE': 2, 'ControlNet': 3, 'Embedding': 4, 'TextualInversion': 4, 'Hypernetwork': 5, 'Other': 99} 
     processed_data.sort(key=lambda x: (type_order.get(x.type if hasattr(x, 'type') else x.get('type', 'Unknown'), 99), x.name if hasattr(x, 'name') else x.get('name', '')))
 
-    review_components = []
-    # Using a list to hold dictionary of Gradio components for each item
-    # This allows retrieving values easily during the final save step
-    item_gr_components = [] 
+    review_components_list = [] # List of Gradio components to be returned for display
+    dynamic_review_components.clear() # Clear previous state
 
     messages.append(f"Preparing {len(processed_data)} items for review panel.")
     for i, item in enumerate(processed_data):
-        item_id = i # Simple ID for referencing in the submit function
-        messages.append(f"  Item {item_id+1}: Name='{item.name if hasattr(item, 'name') else item.get('name', 'Unknown')}', Type='{item.type if hasattr(item, 'type') else item.get('type', 'Unknown')}'")
+        item_key = str(i) # Use string key for dictionary
+        messages.append(f"  Item {item_key}: Name='{item.name if hasattr(item, 'name') else item.get('name', 'Unknown')}', Type='{item.type if hasattr(item, 'type') else item.get('type', 'Unknown')}'")
         is_hf = isinstance(item, dict)
         name = item.get('name') if is_hf else item.name
         source = item.get('source', 'Civitai') if is_hf else 'Civitai'
         
-        # Name and Source Label
+        # Gradio components for this item
+        current_item_widgets = {}
+
         name_label = gr.Markdown(f"### {name} ({source})", elem_classes=["review-item-header"])
-        
-        # Asset Type Dropdown
+        review_components_list.append(name_label)
+        current_item_widgets["name_label"] = name_label # Store reference
+
         type_options = ['Checkpoint', 'LORA', 'VAE', 'ControlNet', 'Embedding', 'TextualInversion', 'Hypernetwork', 'Other'] 
         type_val = item.get('type') if is_hf else item.type
         if type_val not in type_options: type_val = 'Other' 
         type_dropdown = gr.Dropdown(type_options, value=type_val, label="Asset Type", interactive=True)
+        review_components_list.append(type_dropdown)
+        current_item_widgets["type_dropdown"] = type_dropdown # Store reference
         
-        # Base Model Dropdown
         base_model_options = ['SD 1.5', 'SDXL 1.0', 'Pony', 'Unknown', 'Other'] 
         base_model_val = item.get('baseModel') if is_hf else (item.model_versions[0].base_model if hasattr(item, 'model_versions') and item.model_versions else 'Unknown')
         if base_model_val not in base_model_options: base_model_val = 'Other'
         base_model_dropdown = gr.Dropdown(base_model_options, value=base_model_val, label="Base Model", interactive=True)
+        review_components_list.append(base_model_dropdown)
+        current_item_widgets["base_model_dropdown"] = base_model_dropdown # Store reference
 
-        # File Selection (Simplified for now - using URL directly)
-        file_url_to_use = ""
-        file_name_to_use = ""
+        file_dropdown_options = []
+        file_url_map = {}
+        selected_file_name = ""
+        selected_file_url = ""
 
         if not is_hf and hasattr(item, 'model_versions') and item.model_versions:
-            if item.model_versions[0].files:
-                file_url_to_use = item.model_versions[0].files[0].download_url
-                file_name_to_use = item.model_versions[0].files[0].name
-                messages.append(f"    Civitai item: Using first file '{file_name_to_use}' from first version for review.")
-            else:
-                messages.append(f"    No files found for initial version of Civitai item '{name}'. Skipping from review UI.")
-                continue # Skip this item if no downloadable files are found.
+            versions_map = {v.name: v for v in item.model_versions}
+            version_names = list(versions_map.keys())
+            
+            # Initial version files
+            if version_names and versions_map[version_names[0]].files:
+                file_dropdown_options = {f.name: f.download_url for f in versions_map[version_names[0]].files}
+                file_url_map = file_dropdown_options
+                if file_dropdown_options:
+                    selected_file_name = list(file_dropdown_options.keys())[0]
+                    selected_file_url = file_dropdown_options[selected_file_name]
+
+            version_dropdown = gr.Dropdown(version_names, value=version_names[0] if version_names else None, label="Model Version", interactive=True)
+            review_components_list.append(version_dropdown)
+            current_item_widgets["version_dropdown"] = version_dropdown # Store reference
+
+            # File dropdown for Civitai
+            file_dropdown = gr.Dropdown(list(file_dropdown_options.keys()), value=selected_file_name, label="File", interactive=True)
+            review_components_list.append(file_dropdown)
+            current_item_widgets["file_dropdown"] = file_dropdown # Store reference
+
+            # On version change, update file options dynamically
+            # This requires a new Gradio event, which means partial.
+            # We need to capture the current `item_id` and the `file_dropdown` instance.
+            version_dropdown.change(
+                fn=lambda selected_version: (
+                    {f.name: f.download_url for f in versions_map.get(selected_version, versions_map.get(version_names[0])).files if hasattr(versions_map.get(selected_version, versions_map.get(version_names[0])), 'files') and versions_map.get(selected_version, versions_map.get(version_names[0])).files},
+                    list({f.name: f.download_url for f in versions_map.get(selected_version, versions_map.get(version_names[0])).files if hasattr(versions_map.get(selected_version, versions_map.get(version_names[0])), 'files') and versions_map.get(selected_version, versions_map.get(version_names[0])).files}.keys())
+                ),
+                inputs=[version_dropdown],
+                outputs=[gr.State(), file_dropdown] # Outputting a hidden state for file_url_map and updating file_dropdown options
+                , api_name=f"update_files_{item_id}" # Unique API name
+            )
+            # Update the stored file_url_map and file_selection value when version changes
+            # This is complex with Gradio's state. We'll store it in a hidden JSON component.
+            # For simplicity, we'll rely on the default selection or first item for now.
         elif is_hf: 
+            messages.append("    Hugging Face item: Assuming single file.")
             if item.get('files'):
                 file_url_to_use = item['files'][0]['downloadUrl']
                 file_name_to_use = item['files'][0]['name']
-                messages.append(f"    Hugging Face item: Using first guessed file '{file_name_to_use}' for review.")
             else:
                 messages.append(f"    No files found for Hugging Face item '{name}'. Skipping from review UI.")
-                continue # Skip this item if no downloadable files are found.
+                continue 
+            
+            # HF items have a fixed file, so use Markdown for display
+            file_display_markdown = gr.Markdown(f"**Selected File:** `{file_name_to_use}`\n\n*URL:* `{file_url_to_use}`")
+            review_components_list.append(file_display_markdown)
+            current_item_widgets["file_display_markdown"] = file_display_markdown # Store reference
+            
+            # Store the fixed file name and URL for HF items
+            current_item_widgets["file_name"] = file_name_to_use
+            current_item_widgets["file_url"] = file_url_to_use
         else:
             messages.append(f"    ⚠️ Item '{name}' has no identifiable files. Skipping from review UI.")
-            continue # Skip this item if no downloadable files are found.
+            continue 
         
-        file_display_markdown = gr.Markdown(f"**Selected File:** `{file_name_to_use}`\n\n*URL:* `{file_url_to_use}`")
+        # Store the collected Gradio component references and their current values (for non-dynamic parts)
+        dynamic_review_components[item_key] = current_item_widgets
         
-        # Store components and their data for final submission
-        item_gr_components.append({
-            "name_label": name_label,
-            "type_dropdown": type_dropdown,
-            "base_model_dropdown": base_model_dropdown,
-            "file_name": file_name_to_use, # Store the actual name
-            "file_url": file_url_to_use # Store the actual URL
-        })
+        review_components_list.append(gr.HTML("<hr>")) # Separator
 
-        review_components.extend([
-            name_label, type_dropdown, base_model_dropdown, file_display_markdown, gr.HTML("<hr>")
-        ])
-
-    if not review_components:
+    if not review_components_list: # Check if any items were actually added to review_components_list
         messages.append("❌ No items were successfully prepared for the review stage. Returning to initial view.")
-        return gr.Column(visible=True), gr.Column(visible=False), "\n".join(messages)
+        return gr.Column(visible=True), gr.Column(visible=False), gr.Markdown.update(value="\n".join(messages)), [], gr.JSON().update(value={})
 
-    # Use a dummy component to hold item_gr_components for the submit function
-    # This is a common Gradio pattern to pass complex data between functions
-    json_data_store = gr.JSON(item_gr_components, visible=False) # Hide the actual JSON component
-
-    # Create the submit button for this review stage
-    submit_button = gr.Button("Confirm & Add to Library", elem_classes=["button", "button_save"], interactive=True)
-    
-    # Return the components for the review stage, and hide the initial stage
-    return gr.Column(visible=False), gr.Column(visible=True), "\n".join(messages)
+    # Return initial_stage hidden, review_stage visible, messages, and the list of components
+    return gr.Column(visible=False), gr.Column(visible=True), gr.Markdown.update(value="\n".join(messages)), review_components_list, gr.JSON(value=dynamic_review_components).update(visible=False)
 
 
-def final_submit_review(item_gr_components_json):
+def final_submit_review(dynamic_review_components_json):
     """Called when the user confirms the review stage."""
     global url_pool
     messages = ["--- Writing Selections to Data Scripts ---"]
     success_count = 0
 
-    item_gr_components = item_gr_components_json # Data is passed as JSON
+    # `dynamic_review_components_json` will be the JSON representation of the dynamic_review_components dictionary
+    # We need to reconstruct the values from their current states
+    
+    # Example of how to access values from the JSON:
+    # `item_data_from_json` would be a dictionary like:
+    # {
+    #   "name_label": {"value": "### ModelName (Source)"},
+    #   "type_dropdown": "Checkpoint", # This is the selected value
+    #   "base_model_dropdown": "SDXL 1.0",
+    #   "file_name": "filename.safetensors",
+    #   "file_url": "http://download.url"
+    # }
 
-    for item_data in item_gr_components:
-        name = item_data['name_label']['value'].split('(')[0].strip() # Extract name from markdown string
+    for item_key, item_data_from_json in dynamic_review_components_json.items():
+        name = item_data_from_json['name_label']['value'].replace("### ", "").split('(')[0].strip() # Extract name from markdown string
+        asset_type_val = item_data_from_json['type_dropdown'] # Directly the selected value
+        base_model_val = item_data_from_json['base_model_dropdown'] # Directly the selected value
+        file_name = item_data_from_json['file_name']
+        download_url = item_data_from_json['file_url']
+
+        messages.append(f"  Processing confirmed item: '{name}' (Type: {asset_type_val}, Base: {base_model_val}, File: {file_name})")
         try:
-            selected_file_name = item_data['file_name']
-            download_url = item_data['file_url']
-
-            final_data = {
-                'model': {'type': item_data['type_dropdown'], 'name': name}, # Gradio dropdown returns value directly
-                'name': selected_file_name.rsplit('.',1)[0],
-                'baseModel': item_data['base_model_dropdown'], # Gradio dropdown returns value directly
-                'files': [{'name': selected_file_name, 'downloadUrl': download_url}]
-            }
-            
-            result = _categorize_and_write(final_data, final_data['model']['type'], final_data['baseModel'], final_data['model']['name'], selected_file_name, download_url)
+            result = _categorize_and_write(
+                None, # `data` object is not directly used by _categorize_and_write now, can be None
+                asset_type_val, 
+                base_model_val, 
+                name, # display_name
+                file_name, 
+                download_url
+            )
             messages.append(result)
             if "✅" in result:
                 success_count += 1
@@ -357,7 +404,7 @@ def final_submit_review(item_gr_components_json):
     messages.append(f"✅ Processed {success_count} items. Returning to main menu...")
     url_pool = [] # Clear the pool after processing
     # Return to the initial view
-    return gr.Column(visible=True), gr.Column(visible=False), "\n".join(messages) # Show initial, hide review
+    return gr.Column(visible=True), gr.Column(visible=False), gr.Markdown.update(value="\n".join(messages)) # Show initial, hide review
 
 
 # --- Gradio UI Definition ---
@@ -381,6 +428,19 @@ with gr.Blocks(theme=gr.themes.Soft(), css="""
     hr {
         border-top: 1px dashed #777;
     }
+    .gr-textarea { /* Style for text areas */
+        background-color: #1c1c1c !important;
+        color: #f0f8ff !important;
+        border: 1px solid #262626 !important;
+    }
+    .gr-dropdown { /* Style for dropdowns */
+        background-color: #1c1c1c !important;
+        color: #f0f8ff !important;
+        border: 1px solid #262626 !important;
+    }
+    .gr-dropdown-item { /* Style for dropdown items */
+        color: #e0e0e0 !important;
+    }
 """) as demo:
     gr.Markdown("# Anxiety Lightning - Model Manager (Gradio)")
     status_output = gr.Markdown(initialize_api())
@@ -400,89 +460,30 @@ with gr.Blocks(theme=gr.themes.Soft(), css="""
             outputs=[current_pool, status_output]
         )
 
-        process_button.click(
-            process_and_display_review_stage,
-            inputs=[],
-            outputs=[initial_stage, gr.Column(visible=False), status_output], # Output is complex, will be updated below
-            queue=True # Important for long-running processes
-        )
-
     with gr.Column(visible=False) as review_stage:
         gr.Markdown("## Review & Categorize Detected Assets")
-        review_output_area = gr.Markdown() # To display individual item details
-        confirm_button = gr.Button("Confirm All and Add to Library", elem_classes=["button", "button_save"])
-
-        # The actual components for review are built dynamically and returned by process_and_display_review_stage
-        # We need a placeholder for them. Let's make it more generic.
-        # This is where the output of process_and_display_review_stage will go.
-        # We also need to capture the item_gr_components_json to pass to final_submit_review
+        # This Column will be dynamically populated with review_components_list
+        review_items_column = gr.Column() 
+        confirm_button = gr.Button("Confirm All and Add to Library", elem_classes=["button", "button_save"], interactive=True)
         
-        # Dummy component to hold item_gr_components for the submit function
-        item_gr_components_json_placeholder = gr.JSON(value=[], visible=False)
+        # Hidden JSON component to pass dynamic_review_components dictionary
+        # Its value will be set by process_and_display_review_stage and read by final_submit_review
+        hidden_dynamic_components_json = gr.JSON(value={}, visible=False)
 
-        # Update the process_button.click output to include the dynamically created review components
-        process_button.click(
-            process_and_display_review_stage,
-            inputs=[],
-            outputs=[initial_stage, review_stage, status_output, item_gr_components_json_placeholder], # Need to output the JSON data store
-            queue=True # Important for long-running processes
-        )
-        # This part of the Gradio interface will be dynamically populated by process_and_display_review_stage
-        # Let's make it a general Column for the review items.
-        review_items_column = gr.Column()
-        
-        # After process_and_display_review_stage runs, it should dynamically update review_items_column
-        # This requires process_and_display_review_stage to return a list of components which can be added
-        # to a gr.Column, or to create them and assign them directly to the review_items_column if possible.
-        # For a more robust approach in Gradio, it's better to update the children of a gr.Column directly.
-        # So, the process_and_display_review_stage will return gr.update for the review_items_column's children.
-
-        # Let's rethink the process_and_display_review_stage output.
-        # It needs to return (initial_stage_visibility, review_stage_visibility, status_message, review_items_content, item_gr_components_json)
-        # And the confirm_button needs to access item_gr_components_json
-
-    # Redefining process_button.click for clarity
+    # Re-define process_button.click after review_items_column and hidden_dynamic_components_json are defined
     process_button.click(
         process_and_display_review_stage,
-        inputs=[],
-        outputs=[initial_stage, review_stage, status_output, review_items_column, item_gr_components_json_placeholder],
-        queue=True
-    ).success(
-        # This is a placeholder for the actual dynamic display.
-        # In Gradio, dynamically adding widgets can be complex.
-        # A common pattern is to use gr.Dataset or gr.DataFrame,
-        # or have pre-defined slots that get populated.
-        # For now, let's just make sure the `review_stage` is visible and the output message is clear.
-        # The actual `review_items_column` will need to be populated within `process_and_display_review_stage`
-        # or via a chained event that returns the list of components.
-        lambda initial, review, status, items_json: (gr.Column(visible=initial), gr.Column(visible=review), gr.Markdown(status),
-                                                    # Need to dynamically create components here based on items_json
-                                                    # Or return the component list directly from process_and_display_review_stage
-                                                    # For simplicity, let's have process_and_display_review_stage return the review_items_column as children
-                                                    gr.update(children=[
-                                                        gr.Markdown(f"### {item['name_label']['value']}"),
-                                                        gr.Dropdown(item['type_dropdown']['choices'], value=item['type_dropdown']['value'], label="Asset Type"),
-                                                        gr.Dropdown(item['base_model_dropdown']['choices'], value=item['base_model_dropdown']['value'], label="Base Model"),
-                                                        gr.Markdown(f"**Selected File:** `{item['file_name']}`\n\n*URL:* `{item['file_url']}`"),
-                                                        gr.HTML("<hr>")
-                                                    for item in items_json]), # THIS IS PSEUDOCODE - Gradio needs actual components not just markdown/strings
-                                                    gr.JSON(items_json, visible=False) # Keep JSON data for next step
-                                                   )
-        , # This is where the complex part is. Gradio's state management for dynamic component lists is tricky.
-        # For now, let's keep the `process_and_display_review_stage` simpler in its return
-        # and rely on it setting the `review_stage` visibility.
-        # The content for `review_items_column` will need to be generated by `process_and_display_review_stage`
-        # which means it needs to *return* the actual Gradio components, not just text.
+        inputs=[current_pool], # Pass the content of the URL pool Textbox
+        outputs=[initial_stage, review_stage, status_output, review_items_column, hidden_dynamic_components_json],
+        queue=True # Important for long-running processes
     )
-
 
     # Final submit button in the review stage
     confirm_button.click(
         final_submit_review,
-        inputs=[item_gr_components_json_placeholder], # Pass the hidden JSON data
+        inputs=[hidden_dynamic_components_json], # Pass the hidden JSON data
         outputs=[initial_stage, review_stage, status_output] # Return to initial view
     )
-
 
 # --- Run the Gradio App ---
 # You would call this from your notebook's startup cell, e.g., in launch.py
