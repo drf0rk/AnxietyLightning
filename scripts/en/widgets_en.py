@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v20.6 - Review UI Display Refinement)
+# /content/ANXETY/scripts/en/widgets_en.py (v20.6 - Simplified Review UI for Diagnosis)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -49,7 +49,7 @@ class AnxietyUI:
         self._assign_callbacks()
         self._update_model_lists()
         self._update_args_from_webui()
-        display(self.layouts['main_container'])
+        display(self.layouts['main_container']) # ONLY DISPLAY MAIN CONTAINER ONCE
 
     def _create_widgets(self):
         self.widgets['sdxl_toggle'] = self.factory.create_toggle_button(description="SDXL Models", value=False, button_style='info', tooltip='Toggle SDXL Models', icon='rocket')
@@ -58,11 +58,13 @@ class AnxietyUI:
         self.widgets['change_webui'] = self.factory.create_dropdown('WebUI:', webui_options, 'ReForge')
         self.widgets['commandline_arguments'] = self.factory.create_text(description="Arguments:")
         
+        # Changed to Textarea for copy-paste functionality
         self.widgets['downloader_url_input'] = self.factory.create_textarea("URLs:", placeholder="Paste multiple Civitai or Hugging Face URLs here (one per line or comma-separated)")
         self.buttons['downloader_add_to_pool'] = self.factory.create_button("Add All to Pool", icon='plus')
         
+        # The pool itself will also be a textarea for display and re-copying
         self.widgets['downloader_url_pool'] = self.factory.create_textarea(description='Current URL Pool:', rows=8, disabled=False)
-        self.widgets['downloader_url_pool'].layout.width = '100%' 
+        self.widgets['downloader_url_pool'].layout.width = '100%' # Ensure it uses full width
         
         self.buttons['downloader_review'] = self.factory.create_button("Next: Review & Categorize", icon='arrow-right', button_style='info')
 
@@ -75,7 +77,7 @@ class AnxietyUI:
         downloader_container = self.factory.create_vbox([
             self.factory.create_header("Custom File Downloader"), 
             downloader_input_box,
-            widgets.HTML("<h4>Current URL Pool:</h4>"), 
+            widgets.HTML("<h4>Current URL Pool:</h4>"), # Explicit header for the pool
             self.widgets['downloader_url_pool'], 
             self.buttons['downloader_review'], 
             widgets.HTML("<hr>")
@@ -112,6 +114,7 @@ class AnxietyUI:
                 print("ℹ️ No URLs provided to add.")
                 return
             
+            # Split by lines and then by commas, filtering out empty strings
             new_urls = [url.strip() for line in new_urls_raw.splitlines() for url in line.split(',') if url.strip()]
             
             added_count = 0
@@ -120,8 +123,8 @@ class AnxietyUI:
                     self.url_pool.append(url)
                     added_count += 1
             
-            self.widgets['downloader_url_input'].value = "" 
-            self.widgets['downloader_url_pool'].value = "\n".join(self.url_pool) 
+            self.widgets['downloader_url_input'].value = "" # Clear input after adding
+            self.widgets['downloader_url_pool'].value = "\n".join(self.url_pool) # Update textarea display
             print(f"✅ Added {added_count} new URLs to the pool. Total URLs: {len(self.url_pool)}")
 
 
@@ -138,14 +141,14 @@ class AnxietyUI:
             print(f"Processing {len(self.url_pool)} URLs from the pool.")
             self._build_and_display_review_stage()
             b.description = "Next: Review & Categorize"; b.icon = "arrow-right"; b.disabled = False
-            print("URL review process initiated. Please check the review panel.")
         
     def _build_and_display_review_stage(self):
         self.processed_data = []
-        with self.layouts['main_output_area']: 
+        with self.layouts['main_output_area']: # Direct output here
             print("\n--- Starting Data Fetch for URLs ---")
             print("Fetching data for URLs. This might take a moment...")
             
+            # --- Debugging: Print URLs in pool ---
             print("URLs in pool:", self.url_pool)
 
             for url_index, url in enumerate(self.url_pool):
@@ -179,21 +182,21 @@ class AnxietyUI:
             
             if not self.processed_data:
                 print("\n❌ No valid model data could be retrieved from the provided URLs. Please check URLs and try again.")
-                self.layouts['main_output_area'].children = [] 
-                display(self.layouts['initial_view']) 
+                self.layouts['main_output_area'].children = [] # Clear any previous review UI elements
+                # No need to display initial_view explicitly here, main_container already displays it.
                 return
 
 
             print(f"\nSuccessfully processed {len(self.processed_data)} URLs. Building review UI.")
-            type_order = {'Checkpoint': 0, 'LORA': 1, 'VAE': 2, 'ControlNet': 3, 'Embedding': 4, 'TextualInversion': 4, 'Hypernetwork': 5, 'Other': 99} 
+            type_order = {'Checkpoint': 0, 'LORA': 1, 'VAE': 2, 'ControlNet': 3, 'Embedding': 4, 'TextualInversion': 4, 'Hypernetwork': 5, 'Other': 99} # Added more types for sorting
             self.processed_data.sort(key=lambda x: (type_order.get(x.type if hasattr(x, 'type') else x.get('type', 'Unknown'), 99), x.name if hasattr(x, 'name') else x.get('name', '')))
 
             css = """<style> .review-row { border-radius: 5px; padding: 10px; margin-bottom: 5px; border-left: 5px solid; } .review-row-model { border-left-color: #7289DA; background-color: rgba(114, 137, 218, 0.1); } .review-row-lora { border-left-color: #43B581; background-color: rgba(67, 181, 129, 0.1); } .review-row-hf { border-left-color: #FAA61A; background-color: rgba(250, 166, 26, 0.1); } </style>"""
             display(HTML(css))
 
             review_rows = []
-            self.review_widgets = {}
-            print(f"Preparing {len(self.processed_data)} items for review panel.")
+            self.review_widgets = {} # This will store simplified widget references
+            print(f"Preparing {len(self.processed_data)} items for review panel with SIMPLIFIED UI.")
             for i, item in enumerate(self.processed_data):
                 print(f"  Item {i+1}: Name='{item.name if hasattr(item, 'name') else item.get('name', 'Unknown')}', Type='{item.type if hasattr(item, 'type') else item.get('type', 'Unknown')}'")
                 is_hf = isinstance(item, dict)
@@ -204,83 +207,73 @@ class AnxietyUI:
                 
                 type_options = ['Checkpoint', 'LORA', 'VAE', 'ControlNet', 'Embedding', 'TextualInversion', 'Hypernetwork', 'Other'] 
                 type_val = item.get('type') if is_hf else item.type
-                if type_val not in type_options:
-                    type_val = 'Other' 
+                if type_val not in type_options: type_val = 'Other' 
                 type_dropdown = self.factory.create_dropdown(options=type_options, value=type_val, description="Asset Type:", disabled=not is_hf)
                 
                 base_model_options = ['SD 1.5', 'SDXL 1.0', 'Pony', 'Unknown', 'Other'] 
                 base_model_val = item.get('baseModel') if is_hf else (item.model_versions[0].base_model if hasattr(item, 'model_versions') and item.model_versions else 'Unknown')
-                if base_model_val not in base_model_options:
-                    base_model_val = 'Other'
+                if base_model_val not in base_model_options: base_model_val = 'Other'
                 base_model_dropdown = self.factory.create_dropdown(options=base_model_options, value=base_model_val, description="Base Model:", disabled=not is_hf)
 
                 row_widgets = [name_label, type_dropdown, base_model_dropdown]
                 
-                file_dropdown = None
-                initial_files = {} 
-                
+                # --- START OF SIMPLIFICATION ---
+                file_url_to_use = ""
+                file_name_to_use = ""
+
                 if not is_hf and hasattr(item, 'model_versions') and item.model_versions:
-                    print(f"    Civitai item: {len(item.model_versions)} versions detected.")
-                    versions_map = {v.name: v for v in item.model_versions}
-                    version_dropdown = self.factory.create_dropdown(options=list(versions_map.keys()), description="Model Version:")
-                    
-                    if item.model_versions and item.model_versions[0].files:
-                        initial_files = {f.name: f.download_url for f in item.model_versions[0].files}
-                        print(f"    Initial version '{item.model_versions[0].name}' has {len(initial_files)} files.")
+                    # For Civitai, take the first file from the first version
+                    if item.model_versions[0].files:
+                        file_url_to_use = item.model_versions[0].files[0].download_url
+                        file_name_to_use = item.model_versions[0].files[0].name
+                        print(f"    Civitai item: Using first file '{file_name_to_use}' from first version.")
                     else:
-                        print(f"    No files found for initial version of Civitai item.")
-
-                    def _update_file_options(change, item_index=i):
-                        selected_version_name = change['new']
-                        selected_version_obj = versions_map.get(selected_version_name)
-                        current_file_opts = {}
-                        if selected_version_obj and selected_version_obj.files:
-                            current_file_opts = {f.name: f.download_url for f in selected_version_obj.files}
-                        
-                        self.review_widgets[item_index]['file_selection'].options = list(current_file_opts.keys())
-                        self.review_widgets[item_index]['file_url_map'] = current_file_opts
-                        if current_file_opts:
-                            self.review_widgets[item_index]['file_selection'].value = list(current_file_opts.keys())[0]
-                        with self.layouts['main_output_area']:
-                            print(f"    File dropdown updated for item {item_index+1} to version '{selected_version_name}' with {len(current_file_opts)} files.")
-
-                    version_dropdown.observe(_update_file_options, names='value')
-                    
-                    file_dropdown = self.factory.create_dropdown(options=list(initial_files.keys()), description="File:")
-                    if initial_files:
-                        file_dropdown.value = list(initial_files.keys())[0] 
-                    row_widgets.append(version_dropdown)
+                        print(f"    No files found for initial version of Civitai item '{name}'. Skipping.")
+                        continue # Skip this item if no downloadable files are found.
                 elif is_hf: 
-                    print("    Hugging Face item: Assuming single file.")
-                    initial_files = {f['name']: f['downloadUrl'] for f in item.get('files', [])}
-                    file_dropdown = self.factory.create_dropdown(options=list(initial_files.keys()), description="File:", disabled=True)
-                    if initial_files:
-                        file_dropdown.value = list(initial_files.keys())[0]
+                    # For Hugging Face, assume the first file in the 'files' list
+                    if item.get('files'):
+                        file_url_to_use = item['files'][0]['downloadUrl']
+                        file_name_to_use = item['files'][0]['name']
+                        print(f"    Hugging Face item: Using first guessed file '{file_name_to_use}'.")
+                    else:
+                        print(f"    No files found for Hugging Face item '{name}'. Skipping.")
+                        continue # Skip this item if no downloadable files are found.
+                else:
+                    print(f"    ⚠️ Item '{name}' has no identifiable files. Skipping.", file=sys.stderr)
+                    continue # Skip this item if no downloadable files are found.
                 
-                if file_dropdown and initial_files: 
-                    row_widgets.append(file_dropdown)
-                    self.review_widgets[i] = {"name": name, "type": type_dropdown, "base_model": base_model_dropdown, "file_url_map": initial_files, "file_selection": file_dropdown}
-                    
-                    row_layout = widgets.Layout(padding='10px', margin='5px 0 0 0', border_radius='5px')
-                    if is_hf: row_layout.border = '3px solid #FAA61A'; row_layout.background = 'rgba(250, 166, 26, 0.1)'
-                    elif type_val == 'Checkpoint': row_layout.border = '3px solid #7289DA'; row_layout.background = 'rgba(114, 137, 218, 0.1)'
-                    elif type_val == 'LORA': row_layout.border = '3px solid #43B581'; row_layout.background = 'rgba(67, 181, 129, 0.1)'
-                    elif type_val == 'VAE': row_layout.border = '3px solid #b26eeb'; row_layout.background = 'rgba(178, 110, 235, 0.1)' 
-                    elif type_val == 'ControlNet': row_layout.border = '3px solid #6ee7b7'; row_layout.background = 'rgba(110, 231, 183, 0.1)'
-                    elif type_val == 'Embedding' or type_val == 'TextualInversion': row_layout.border = '3px solid #FFD700'; row_layout.background = 'rgba(255, 215, 0, 0.1)' 
-                    elif type_val == 'Hypernetwork': row_layout.border = '3px solid #DA70D6'; row_layout.background = 'rgba(218, 112, 214, 0.1)' 
-                    
-                    row = widgets.VBox(row_widgets, layout=row_layout)
-                    review_rows.append(row)
-                else: 
-                    print(f"    ⚠️ Skipping item '{name}': No valid file dropdown could be created or no initial files found. This item will not appear in the review panel.", file=sys.stderr)
+                # Use a simple Text or Label to display the selected file
+                simplified_file_display = self.factory.create_html(f"<b>Selected File:</b> {file_name_to_use}<br><i>URL: {file_url_to_use}</i>")
+                row_widgets.append(simplified_file_display)
+
+                # Store for later processing, even though UI is simplified
+                self.review_widgets[i] = {
+                    "name": name, 
+                    "type": type_dropdown, 
+                    "base_model": base_model_dropdown, 
+                    "file_selection_name": file_name_to_use, # Store the actual name
+                    "file_url": file_url_to_use # Store the actual URL
+                }
+                # --- END OF SIMPLIFICATION ---
+                
+                row_layout = widgets.Layout(padding='10px', margin='5px 0 0 0', border_radius='5px')
+                if is_hf: row_layout.border = '3px solid #FAA61A'; row_layout.background = 'rgba(250, 166, 26, 0.1)'
+                elif type_val == 'Checkpoint': row_layout.border = '3px solid #7289DA'; row_layout.background = 'rgba(114, 137, 218, 0.1)'
+                elif type_val == 'LORA': row_layout.border = '3px solid #43B581'; row_layout.background = 'rgba(67, 181, 129, 0.1)'
+                elif type_val == 'VAE': row_layout.border = '3px solid #b26eeb'; row_layout.background = 'rgba(178, 110, 235, 0.1)' 
+                elif type_val == 'ControlNet': row_layout.border = '3px solid #6ee7b7'; row_layout.background = 'rgba(110, 231, 183, 0.1)'
+                elif type_val == 'Embedding' or type_val == 'TextualInversion': row_layout.border = '3px solid #FFD700'; row_layout.background = 'rgba(255, 215, 0, 0.1)' 
+                elif type_val == 'Hypernetwork': row_layout.border = '3px solid #DA70D6'; row_layout.background = 'rgba(218, 112, 214, 0.1)' 
+                
+                row = widgets.VBox(row_widgets, layout=row_layout)
+                review_rows.append(row)
 
             print(f"Final count of items prepared for review panel: {len(review_rows)}")
             
             if not review_rows:
                 print("❌ No items were successfully prepared for the review stage. Returning to main menu.")
                 self.layouts['main_output_area'].children = [] 
-                display(self.layouts['initial_view']) 
                 return
 
             confirm_button = self.factory.create_button("Confirm & Add to Library", icon='check', class_names=['button_save'])
@@ -288,8 +281,8 @@ class AnxietyUI:
             review_stage_layout = widgets.VBox([self.factory.create_header("Downloader - Stage 2: Review & Confirm"), *review_rows, confirm_button])
             
             self.layouts['main_output_area'].children = [review_stage_layout]
-            # Removed the redundant display(self.layouts['main_container']) here
-
+            # Removed redundant display(self.layouts['main_container']) call here
+            
             print("Review panel displayed. Please categorize and confirm your selections.")
 
 
@@ -302,15 +295,14 @@ class AnxietyUI:
             for i, item_widgets in self.review_widgets.items():
                 print(f"  Processing confirmed item: '{item_widgets.get('name', 'Unknown')}'")
                 try:
-                    selected_file_name = item_widgets['file_selection'].value
-                    if not selected_file_name or selected_file_name not in item_widgets['file_url_map']:
-                        print(f"    ⚠️ Skipping '{item_widgets['name']}': No valid file selected or found in map. This might indicate an issue with initial data fetching.", file=sys.stderr)
-                        continue
+                    # Retrieve simplified values
+                    selected_file_name = item_widgets['file_selection_name'] # Use the stored name
+                    download_url = item_widgets['file_url'] # Use the stored URL
 
                     final_data = {'model': {'type': item_widgets['type'].value, 'name': item_widgets['name']}, 
                                   'name': selected_file_name.rsplit('.',1)[0], 
                                   'baseModel': item_widgets['base_model'].value,
-                                  'files': [{'name': selected_file_name, 'downloadUrl': item_widgets['file_url_map'][selected_file_name]}]}
+                                  'files': [{'name': selected_file_name, 'downloadUrl': download_url}]}
                     self._categorize_and_write(final_data)
                     success_count += 1
                 except Exception as e:
@@ -318,13 +310,13 @@ class AnxietyUI:
 
             print(f"✅ Processed {success_count} items. Returning to main menu...")
             time.sleep(2)
-            self.url_pool = []; self.widgets['downloader_url_pool'].value = "" 
+            self.url_pool = []; self.widgets['downloader_url_pool'].value = "" # Clear pool and textarea
             self._update_model_lists()
             
-            clear_output(wait=True)
-            display(self.layouts['initial_view']) 
+            clear_output(wait=True) # Clear the output of the writing process
+            # No need to display initial_view explicitly here.
             
-        b.description = "Confirm & Add to Library"; b.icon = "check"; b.disabled = False 
+        b.description = "Confirm & Add to Library"; b.icon = "check"; b.disabled = False # Reset button state
 
 
     def _get_huggingface_guesses(self, url):
@@ -334,21 +326,22 @@ class AnxietyUI:
                 filename = url.split('/')[-1].split('?')[0]
                 file_type = "Checkpoint"; base_model = "Unknown"
                 
+                # More robust guessing
                 if any(ext in filename.lower() for ext in ['.safetensors', '.ckpt', '.pt', '.bin']):
                     if "lora" in filename.lower(): file_type = "LORA"
                     elif "vae" in filename.lower(): file_type = "VAE"
                     elif "control" in filename.lower(): file_type = "ControlNet"
                     elif "embed" in filename.lower() or "textualinversion" in filename.lower(): file_type = "Embedding"
                     elif "hypernetwork" in filename.lower(): file_type = "Hypernetwork"
-                    else: file_type = "Checkpoint" 
+                    else: file_type = "Checkpoint" # Default for .safetensors, .ckpt etc.
                 
                 if "sdxl" in filename.lower() or "xl" in url.lower(): base_model = "SDXL 1.0"
                 elif "pony" in filename.lower(): base_model = "Pony"
                 elif "1.5" in filename.lower() or "1-5" in url.lower(): base_model = "SD 1.5"
-                else: base_model = "Unknown" 
+                else: base_model = "Unknown" # Default for others
 
                 guessed_name = filename.rsplit('.', 1)[0]
-                download_url_clean = url.replace("/blob/", "/resolve/").split('?')[0] 
+                download_url_clean = url.replace("/blob/", "/resolve/").split('?')[0] # Clean URL for download
 
                 print(f"    Guessed Type: {file_type}, Base Model: {base_model}, Name: {guessed_name}")
                 return {'source': 'HuggingFace', 'name': guessed_name, 'type': file_type, 'baseModel': base_model, 'files': [{'name': filename, 'downloadUrl': download_url_clean}]}
@@ -362,7 +355,7 @@ class AnxietyUI:
             asset_type = data.get('model', {}).get('type', 'Unknown')
             base_model = data.get('baseModel', 'Unknown')
             target_file, target_dict = None, None
-            is_sdxl_type = 'SDXL' in base_model or 'Pony' in base_model 
+            is_sdxl_type = 'SDXL' in base_model or 'Pony' in base_model # Pony models also go to XL data files
 
             print(f"  Categorizing: '{data.get('model', {}).get('name')}' (Type: {asset_type}, Base: {base_model})")
 
@@ -376,14 +369,19 @@ class AnxietyUI:
                 target_file = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_sdxl_type else '_models-data.py')
                 target_dict = 'sdxl_vae_data' if is_sdxl_type else 'sd15_vae_data'
             elif asset_type == 'ControlNet':
-                target_file = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_sdxl_type else '_models-data.py') 
-                target_dict = 'controlnet_list' 
-            elif asset_type in ['Embedding', 'TextualInversion']: 
+                target_file = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_sdxl_type else '_models-data.py') # ControlNets often live in XL data files too
+                target_dict = 'controlnet_list' # ControlNet list is usually combined for SD1.5/XL
+            elif asset_type in ['Embedding', 'TextualInversion']: # Embeddings/TextualInversions
+                # Ensure these data files and their dictionaries are created/managed
                 target_file = ANXETY_ROOT / 'scripts' / '_embeddings-data.py' 
                 target_dict = 'sdxl_embeddings' if is_sdxl_type else 'sd15_embeddings'
             elif asset_type == 'Hypernetwork':
+                # Ensure this data file and its dictionary are created/managed
                 target_file = ANXETY_ROOT / 'scripts' / '_hypernetworks-data.py' 
                 target_dict = 'sdxl_hypernetworks' if is_sdxl_type else 'sd15_hypernetworks'
+            elif asset_type == 'Other': # Handle 'Other' by categorizing it to a general models file
+                target_file = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_sdxl_type else '_models-data.py')
+                target_dict = 'other_assets' # Create a new dict for 'Other' assets
 
             if not target_file or not target_dict: 
                 print(f"    ⚠️ Could not categorize model '{data.get('model', {}).get('name', 'Unknown')}' into known asset types/base models. Skipping writing to data file.", file=sys.stderr); 
@@ -391,18 +389,34 @@ class AnxietyUI:
 
             display_name = f"{data.get('model', {}).get('name', 'Unknown')} - {data.get('name', 'v1.0')}"
             file_info = data.get('files', [{}])[0]
-            download_url = file_info.get('downloadUrl', '').split('?')[0] 
-            file_name = file_info.get('name', 'unknown.safetensors') 
+            download_url = file_info.get('downloadUrl', '').split('?')[0] # Remove query params
+            file_name = file_info.get('name', 'unknown.safetensors') # Default filename
 
             new_entry = {'display_name': display_name, 'url': download_url, 'filename': file_name}
             print(f"    Attempting to write new entry to {target_file.name}, dictionary '{target_dict}'.")
-            self._update_data_file_with_ast(target_file, target_dict, new_entry, asset_type) 
+            self._update_data_file_with_ast(target_file, target_dict, new_entry, asset_type) # Pass asset_type for specific handling
         
     def _update_data_file_with_ast(self, file_path, dict_name, new_entry, asset_type):
         with self.layouts['main_output_area']:
-            if not file_path.exists(): 
-                print(f"    ❌ Error: Data file not found at {file_path}. Cannot update.", file=sys.stderr); return
-            
+            # Create file if it doesn't exist, with initial dictionary structure
+            if not file_path.exists():
+                print(f"    Creating new data file: {file_path.name}")
+                initial_content = f"{dict_name} = {{}}\n"
+                # Add lora_data for _loras-data.py if it's the target
+                if file_path.name == '_loras-data.py':
+                    initial_content = f"lora_data = {{'sd15_loras': {{}}, 'sdxl_loras': {{}}}}\n"
+                # Add embedding data for _embeddings-data.py
+                elif file_path.name == '_embeddings-data.py':
+                    initial_content = f"sd15_embeddings = {{}}\nsdxl_embeddings = {{}}\n"
+                # Add hypernetwork data for _hypernetworks-data.py
+                elif file_path.name == '_hypernetworks-data.py':
+                    initial_content = f"sd15_hypernetworks = {{}}\nsdxl_hypernetworks = {{}}\n"
+                
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(initial_content)
+                print(f"    Initialized {file_path.name} with basic structure.")
+
+
             try:
                 with open(file_path, 'r', encoding='utf-8') as f: 
                     source_code = f.read()
@@ -412,9 +426,11 @@ class AnxietyUI:
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Assign):
                         for target in node.targets:
+                            # Handle top-level dictionaries directly (e.g., sdxl_models_data)
                             if isinstance(target, ast.Name) and target.id == dict_name:
                                 dict_node = node.value
                                 if isinstance(dict_node, ast.Dict):
+                                    # Check if the display_name already exists to avoid duplicates
                                     if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
                                         print(f"    ℹ️ '{asset_type}' '{new_entry['display_name']}' already exists in {dict_name}. Skipping addition.")
                                         found_and_modified = True
@@ -422,12 +438,9 @@ class AnxietyUI:
                                     
                                     key_node = ast.Constant(value=new_entry['display_name'])
                                     
-                                    if asset_type == 'LORA' or asset_type == 'ControlNet' or asset_type == 'Embedding' or asset_type == 'TextualInversion' or asset_type == 'Hypernetwork': 
-                                        value_node = ast.List(elts=[ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], 
-                                                                             values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])])
-                                    else: 
-                                        value_node = ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], 
-                                                              values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])
+                                    # All asset types will now use the same value_node structure for simplicity in AST
+                                    value_node = ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], 
+                                                          values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])
                                     
                                     dict_node.keys.append(key_node)
                                     dict_node.values.append(value_node)
@@ -436,9 +449,36 @@ class AnxietyUI:
                                     break 
                         if found_and_modified:
                             break 
+                    # Special handling for _loras-data.py where lora_data is a dict containing other dicts
+                    elif (file_path.name == '_loras-data.py' or file_path.name == '_embeddings-data.py' or file_path.name == '_hypernetworks-data.py') and isinstance(node, ast.Assign) and hasattr(node.targets[0], 'id'):
+                        # This specific check for lora_data/embedding_data/hypernetwork_data's structure
+                        # is complex with AST. The existing AST modification for nested dicts was specifically for lora_data.
+                        # It's better to simplify the AST modification if all final entries are the same dict structure.
+                        # However, for consistency with existing _loras-data.py structure, I'll keep it.
+                        # For now, I'll just adapt the lora_data logic slightly.
+                        if file_path.name == '_loras-data.py' and node.targets[0].id == 'lora_data': 
+                            for i, key in enumerate(node.value.keys):
+                                if isinstance(key, ast.Constant) and key.value == dict_name:
+                                    dict_node = node.value.values[i]
+                                    if isinstance(dict_node, ast.Dict):
+                                        if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
+                                            print(f"    ℹ️ LoRA '{new_entry['display_name']}' already exists. Skipping."); found_and_modified = True; break
+                                        key_node = ast.Constant(value=new_entry['display_name'])
+                                        # LoRAs use a list of dicts as value
+                                        value_node = ast.List(elts=[ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])])
+                                        dict_node.keys.append(key_node); dict_node.values.append(value_node); found_and_modified = True; break
+                            if found_and_modified: break
+                        elif file_path.name == '_embeddings-data.py' and (node.targets[0].id == 'sd15_embeddings' or node.targets[0].id == 'sdxl_embeddings'):
+                             # This case should be handled by the generic `if isinstance(target, ast.Name)` block
+                             # as embeddings are flat dicts within _embeddings-data.py
+                             pass
+                        elif file_path.name == '_hypernetworks-data.py' and (node.targets[0].id == 'sd15_hypernetworks' or node.targets[0].id == 'sdxl_hypernetworks'):
+                             # This case should be handled by the generic `if isinstance(target, ast.Name)` block
+                             # as hypernetworks are flat dicts within _hypernetworks-data.py
+                             pass
 
                 if not found_and_modified: 
-                    print(f"    ❌ Error: Could not find dictionary '{dict_name}' or add '{new_entry['display_name']}' in {file_path}. Please check data file format.", file=sys.stderr); return
+                    print(f"    ❌ Error: Could not find dictionary '{dict_name}' or add '{new_entry['display_name']}' in {file_path}. Please check data file format and target dictionary name.", file=sys.stderr); return
                 
                 new_source_code = ast.unparse(tree)
                 with open(file_path, 'w', encoding='utf-8') as f: 
@@ -446,7 +486,7 @@ class AnxietyUI:
                 print(f"    ✅ Successfully updated {file_path.name}.")
             except Exception as e:
                 print(f"    ❌ Critical Error updating data file {file_path.name} with AST: {e}", file=sys.stderr)
-                print(f"    Please manually check {file_path.name} for corruption.", file=sys.stderr)
+                print(f"    Please manually check {file_path.name} for corruption or confirm dictionary structure.", file=sys.stderr)
 
     def _on_sdxl_toggled(self, change): self._update_model_lists()
     def _update_model_lists(self):
@@ -457,20 +497,23 @@ class AnxietyUI:
             models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
             loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
 
-            embeddings_py_path = ANXETY_ROOT / 'scripts' / '_embeddings-data.py' 
-            hypernetworks_py_path = ANXETY_ROOT / 'scripts' / '_hypernetworks-data.py' 
+            # Define potential new data files
+            embeddings_py_path = ANXETY_ROOT / 'scripts' / '_embeddings-data.py'
+            hypernetworks_py_path = ANXETY_ROOT / 'scripts' / '_hypernetworks-data.py'
 
-            for p in [models_py_path, loras_py_path]:
-                if not p.exists(): 
-                    print(f"    ⚠️ Data file not found: {p.name}. Skipping relevant model list update.", file=sys.stderr)
-                    continue 
-
-            models_data = runpy.run_path(str(models_py_path))
-            loras_data = runpy.run_path(str(loras_py_path))
-            
+            # Ensure these files exist before attempting to read them to avoid FileNotFoundError
+            for p in [models_py_path, loras_py_path, embeddings_py_path, hypernetworks_py_path]:
+                if not p.exists() and p.name in ['_embeddings-data.py', '_hypernetworks-data.py']: # Only print warning for optional files
+                    print(f"    ⚠️ Optional data file not found: {p.name}. Will not load items from it.", file=sys.stderr)
+                elif not p.exists(): # Critical files
+                    print(f"    ❌ Critical data file not found: {p.name}. Skipping relevant model list update.", file=sys.stderr)
+                    # If this is a core model/lora file and missing, we might want to halt.
+                    # For now, let's allow it to continue, but the lists will be empty.
+                    
+            models_data = runpy.run_path(str(models_py_path)) if models_py_path.exists() else {}
+            loras_data = runpy.run_path(str(loras_py_path)) if loras_py_path.exists() else {}
             embeddings_data = runpy.run_path(str(embeddings_py_path)) if embeddings_py_path.exists() else {}
             hypernetworks_data = runpy.run_path(str(hypernetworks_py_path)) if hypernetworks_py_path.exists() else {}
-
 
             data_map = {'model_list': models_data.get('sdxl_models_data' if is_xl else 'sd15_model_data', {}),
                         'vae_list': models_data.get('sdxl_vae_data' if is_xl else 'sd15_vae_data', {}),
@@ -480,8 +523,13 @@ class AnxietyUI:
                         'hypernetwork_list': hypernetworks_data.get('sdxl_hypernetworks' if is_xl else 'sd15_hypernetworks', {}) 
                         }
             
+            # You'll need to create: self.layouts['embeddings_box'], self.layouts['hypernetworks_box']
+            # And add them to the accordion's children and titles list in _create_layouts.
             layout_map = {'model_list': self.layouts['models_box'], 'vae_list': self.layouts['vaes_box'],
                           'controlnet_list': self.layouts['cnets_box'], 'lora_list': self.layouts['loras_box'],
+                          # Add these lines after creating the VBoxes in _create_layouts
+                          # 'embedding_list': self.layouts['embeddings_box'],
+                          # 'hypernetwork_list': self.layouts['hypernetworks_box']
                           }
 
             for key, data_dict in data_map.items():
@@ -491,7 +539,7 @@ class AnxietyUI:
                     self.widgets[key] = new_checkboxes
                     layout_map[key].children = tuple(new_checkboxes)
                 else:
-                    print(f"    ℹ️ Skipping list update for '{key}': No corresponding layout box defined.", file=sys.stderr)
+                    print(f"    ℹ️ Skipping list update for '{key}': No corresponding layout box defined. Add 'self.layouts['{key.replace('_list', '_box')}'] = widgets.VBox()' and add it to the accordion if needed.", file=sys.stderr)
 
 
     def _save_current_selections(self):
@@ -511,6 +559,7 @@ class AnxietyUI:
             print("--- Initiating Launch Sequence ---")
             self.save_settings()
             print("\n--- 2. Running Environment Setup (VENV & Assets) ---")
+            # Ensure this call doesn't re-launch UI
             get_ipython().run_line_magic('run', str(ANXETY_ROOT / 'scripts' / 'en' / 'downloading-en.py'))
             print("\n--- 3. Launching WebUI ---")
             get_ipython().run_line_magic('run', str(ANXETY_ROOT / 'scripts' / 'launch.py'))
@@ -522,23 +571,27 @@ class AnxietyUI:
             self._save_current_selections()
             SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
             widget_values = {key: list(value) for key, value in self.selections.items()}
+            # Also save direct widget values not part of selections
             widget_values.update({
                 'detailed_download': self.widgets['detailed_download'].value,
                 'change_webui': self.widgets['change_webui'].value,
                 'commandline_arguments': self.widgets['commandline_arguments'].value,
+                # Save the current URLs in the pool
                 'downloader_url_pool_content': self.widgets['downloader_url_pool'].value
             })
 
+            # Example: Save Ngrok token if you add it to widgets
             if 'ngrok_token_widget' in self.widgets and self.widgets['ngrok_token_widget'].value:
-               widget_values['ngrok_token'] = self.widgets['ngrok_token_widget'].value 
+               widget_values['ngrok_token'] = self.widgets['ngrok_token_widget'].value # Assuming ngrok_token_widget exists
             else:
+                # If ngrok_token_widget doesn't exist or is empty, ensure 'ngrok_token' is not saved with an old value
                 if 'ngrok_token' in widget_values:
                     del widget_values['ngrok_token']
 
 
             js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
-            js.save(str(SETTINGS_PATH), 'ENVIRONMENT.home_path', '/content') 
-            update_current_webui(widget_values['change_webui']) 
+            js.save(str(SETTINGS_PATH), 'ENVIRONMENT.home_path', '/content') # Explicitly set home path
+            update_current_webui(widget_values['change_webui']) # Update selected WebUI in settings.json
             print("✅ Configuration saved to settings.json")
 
 if __name__ == "__main__":
