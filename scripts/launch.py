@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (v3 - Final Parallel Launch)
+# /content/ANXETY/scripts/launch.py (v4 - Final Syntax Fix)
 
 import os
 import sys
@@ -22,8 +22,8 @@ except NameError:
 if str(ANXETY_ROOT / 'modules') not in sys.path:
     sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
 
-from modules.TunnelHub import Tunnel
 import modules.json_utils as js
+from modules.TunnelHub import Tunnel
 
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 
@@ -52,20 +52,34 @@ if str(PKG_PATH) not in os.environ.get('PYTHONPATH', ''):
     os.environ['PYTHONPATH'] = f"{PKG_PATH}:{os.environ.get('PYTHONPATH', '')}"
 
 def get_launch_command():
+    """Constructs the final launch command with all arguments."""
     base_args = commandline_arguments
+    
     if theme_accent != 'anxety' and UI != 'ComfyUI':
          base_args += f" --anxety-theme={theme_accent}"
 
     if UI == 'ComfyUI':
         return f"python3 main.py {base_args}"
     else:
+        # --- ROBUST COMMAND BUILDING ---
+        command = ["python3", "launch.py"]
+        if base_args:
+            command.extend(shlex.split(base_args))
+        
         shared_models_dir = HOME / 'sd_models_shared' / 'models'
-        return (f"python3 launch.py {base_args} "
-                f"--ckpt-dir \"{shared_models_dir / 'Stable-diffusion'}\" "
-                f"--vae-dir \"{shared_models_dir / 'VAE'}\" "
-                f"--lora-dir \"{shared_models_dir / 'Lora'}\" "
-                f"--embeddings-dir \"{shared_models_dir / 'embeddings'}\" "
-                f"--controlnet-dir \"{shared_models_dir / 'ControlNet'}\"")
+        path_args = {
+            "--ckpt-dir": shared_models_dir / 'Stable-diffusion',
+            "--vae-dir": shared_models_dir / 'VAE',
+            "--lora-dir": shared_models_dir / 'Lora',
+            "--embeddings-dir": shared_models_dir / 'embeddings',
+            "--controlnet-dir": shared_models_dir / 'ControlNet'
+        }
+        
+        for arg, path in path_args.items():
+            command.append(arg)
+            command.append(f'"{path}"')
+            
+        return " ".join(command)
 
 # --- Main Execution ---
 if __name__ == '__main__':
@@ -77,13 +91,12 @@ if __name__ == '__main__':
 
     os.chdir(WEBUI_PATH)
     
-    # --- Setup Tunnels ---
+    # --- Setup and Run Tunnels ---
     tunnel_port = 8188 if UI == 'ComfyUI' else 7860
-    tunneling_service = Tunnel(tunnel_port, debug=True)
+    tunneling_service = Tunnel(tunnel_port, debug=False)
     
-    # The gradio-tunneling.py script is no longer needed, TunnelHub handles Gradio itself
     tunneling_service.add_tunnel(
-        command=f"python3 -m anxt.gradio_tunnel {tunnel_port}",
+        command=f"gradio client {WEBUI_PATH}", # Simplified Gradio command
         pattern=re.compile(r'https://[\w-]+\.gradio\.live'),
         name='Gradio'
     )
@@ -95,7 +108,6 @@ if __name__ == '__main__':
             name='Ngrok'
         )
     
-    # --- THIS IS THE FIX: Launch tunnels non-blockingly ---
     tunneling_service.__enter__()
 
     # --- Launch WebUI Immediately ---
@@ -107,4 +119,4 @@ if __name__ == '__main__':
 
     print("\n✅ WebUI and Tunnels are launching in the background.")
     print("The public URL(s) will appear above shortly as they become available.")
-    print("
+    print("This cell will keep running to maintain the connection. Interrupt the kernel (Stop button) to end the session.")
