@@ -1,13 +1,13 @@
-# /content/ANXETY/scripts/startup.py
+# /content/ANXETY/scripts/startup.py (Corrected with Reload)
 
 # --- Imports ---
 import sys
 from pathlib import Path
 from IPython.display import display, clear_output
 from ipywidgets import HBox
+import importlib # <--- ADD THIS LINE
 
 # --- Pathing ---
-# Ensure the project root is in the path to find other modules/scripts.
 try:
     ANXETY_ROOT = Path(__file__).resolve().parents[1]
 except NameError:
@@ -18,7 +18,10 @@ if str(ANXETY_ROOT) not in sys.path:
 
 # --- Import from Project Modules ---
 from scripts.en.widgets_en import AnxietyUI
-from scripts.custom_downloader import CustomDownloaderUI
+# --- START OF CHANGE ---
+# Import the module itself, not the class directly yet
+from scripts import custom_downloader 
+# --- END OF CHANGE ---
 from modules.widget_factory import WidgetFactory
 
 # --- UI State Management ---
@@ -39,6 +42,12 @@ def launch_downloader_ui(b):
     global downloader_ui_instance
     clear_output(wait=True)
     if not downloader_ui_instance:
+        # --- START OF CHANGE ---
+        # Force a reload of the module to get the latest version from disk
+        importlib.reload(custom_downloader)
+        # Now, access the class from the reloaded module
+        CustomDownloaderUI = custom_downloader.CustomDownloaderUI
+        # --- END OF CHANGE ---
         downloader_ui_instance = CustomDownloaderUI(launch_main_ui)
     downloader_ui_instance.display()
 
