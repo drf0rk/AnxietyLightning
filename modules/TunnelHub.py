@@ -1,4 +1,4 @@
-# /content/ANXETY/modules/TunnelHub.py (v3 - Heavy Duty Debugging)
+# /content/ANXETY/modules/TunnelHub.py (v4 - Import Fix)
 
 from typing import Callable, List, Optional, Tuple, TypedDict, Union
 from threading import Event, Lock, Thread
@@ -10,6 +10,7 @@ import shlex
 import time
 import re
 import os
+import shutil # <-- THIS IS THE FIX
 
 StrOrPath = Union[str, Path]
 StrOrRegexPattern = Union[str, re.Pattern]
@@ -91,10 +92,9 @@ class Tunnel:
         try:
             cmd = tunnel['command'].format(port=self.port); name = tunnel.get('name')
             tunnel_thread = Thread(target=self._run, args=(cmd, name)); tunnel_thread.start(); self.jobs.append(tunnel_thread)
-        except Exception as e: self.logger.error(f"Failed to start tunnel {tunnel.get('name')}: {str(e)}")
+        except Exception as e: self.logger.error(f"Failed to start tunnel {tunnel.get('name')}: {e}")
 
     def _run(self, cmd: str, name: str) -> None:
-        """The new heavily-debugged subprocess runner."""
         log = self.logger.getChild(name)
         log.debug(f"Process starting with command: {cmd}")
         print(f"[TUNNEL_HUB_DEBUG] Starting process for '{name}'...")
@@ -102,25 +102,15 @@ class Tunnel:
             self.wait_for_port_if_needed()
             process = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
             self.processes.append(process)
-
             def stream_reader(stream, stream_type):
                 for line in iter(stream.readline, ''):
                     if self.stop_event.is_set(): break
                     print(f"[{name}:{stream_type}] {line.strip()}")
                     self._process_line(line)
-            
-            stdout_thread = Thread(target=stream_reader, args=(process.stdout, 'stdout'))
-            stderr_thread = Thread(target=stream_reader, args=(process.stderr, 'stderr'))
-            stdout_thread.start()
-            stderr_thread.start()
-            
-            while not self.stop_event.is_set() and process.poll() is None:
-                time.sleep(0.5)
-
-            stdout_thread.join(timeout=2)
-            stderr_thread.join(timeout=2)
+            stdout_thread = Thread(target=stream_reader, args=(process.stdout, 'stdout')); stderr_thread = Thread(target=stream_reader, args=(process.stderr, 'stderr'))
+            stdout_thread.start(); stderr_thread.start()
+            process.wait(); stdout_thread.join(timeout=2); stderr_thread.join(timeout=2)
             print(f"[TUNNEL_HUB_DEBUG] Process '{name}' finished with exit code: {process.returncode}")
-
         except Exception as e:
             log.error(f"Error in tunnel process: {str(e)}", exc_info=self.debug)
             print(f"[TUNNEL_HUB_DEBUG] Exception in tunnel '{name}': {e}")
@@ -138,6 +128,8 @@ class Tunnel:
             for url, note, name in self.urls:
                 print(f"\033[32m 🔗 Tunnel \033[0m{name:<10}  \033[32mURL: \033[0m{url} {note or ''}")
             print('\n\033[32m+' + '='*98 + '+\033[0m\n')
+            if self.callback: self.invoke_callback(self.callback, self.urls)
+            self.printed.set()
 
     # --- Other methods (stop, reset, etc.) are omitted for brevity but are unchanged ---
     def stop(self) -> None: self.stop_event.set(); self.terminate_processes(); self.join_threads(); self.reset()
