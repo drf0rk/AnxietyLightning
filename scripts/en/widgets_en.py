@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v13 - Added Ngrok Token UI)
+# /content/ANXETY/scripts/en/widgets_en.py (v14 - Token Persistence Update)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -53,8 +53,8 @@ class AnxietyUI:
         self.widgets['change_webui'] = self.factory.create_dropdown('WebUI:', webui_options, 'ReForge')
         self.widgets['commandline_arguments'] = self.factory.create_text(description="Arguments:")
         
-        # ADDED Ngrok Token Widget
-        self.widgets['ngrok_token'] = self.factory.create_text(description="Ngrok Token:", placeholder="Optional: Paste your Ngrok authtoken here...")
+        # --- CHANGE: Ngrok Token Widget has been removed from the UI ---
+        # It is now handled by the bootstrap cell for persistence.
         
         self.widgets['model_list'], self.widgets['vae_list'], self.widgets['controlnet_list'], self.widgets['lora_list'] = [], [], [], []
         self.widgets['extension_url_input'] = self.factory.create_text("", placeholder="Paste Git Repo URL for Extension...")
@@ -71,12 +71,12 @@ class AnxietyUI:
         extension_installer_box = widgets.HBox([self.widgets['extension_url_input'], self.buttons['install_extension']], layout={'width': '100%'})
         self.widgets['extension_url_input'].layout.width = '95%'
 
-        # ADDED Ngrok widget to a new Accordion section
+        # --- CHANGE: Removed Ngrok widget from the Accordion ---
         accordion = widgets.Accordion(children=[
             self.layouts['models_box'], self.layouts['vaes_box'], self.layouts['cnets_box'], self.layouts['loras_box'], 
-            self.widgets['embedding_url'], extension_installer_box, self.widgets['extra_files_url'], self.widgets['ngrok_token']
+            self.widgets['embedding_url'], extension_installer_box, self.widgets['extra_files_url']
         ])
-        titles = ['Checkpoints', 'VAEs', 'ControlNets', 'LoRAs', 'Embeddings (URL)', 'Install Extension (Git)', 'Extra Files (URL)', 'Tunnels']
+        titles = ['Checkpoints', 'VAEs', 'ControlNets', 'LoRAs', 'Embeddings (URL)', 'Install Extension (Git)', 'Extra Files (URL)']
         for i, title in enumerate(titles): accordion.set_title(i, title)
         
         self.buttons['launch'] = self.factory.create_button(description="Install, Download & Launch", class_names=['button', 'button_save'], icon='paper-plane')
@@ -94,7 +94,6 @@ class AnxietyUI:
     def _on_webui_changed(self, change): self._update_args_from_webui()
         
     def _on_install_extension_clicked(self, b):
-        # This function's logic remains the same
         pass
 
     def _update_args_from_webui(self):
@@ -136,16 +135,29 @@ class AnxietyUI:
         get_ipython().run_line_magic('run', str(ANXETY_ROOT / 'scripts' / 'launch.py'))
         
     def save_settings(self):
-        SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
-        # ADDED ngrok_token to the list of saved widgets
-        widget_values = {k: v.value for k, v in self.widgets.items() if hasattr(v, 'value') and not isinstance(v, list)}
+        SETTINGS_PATH = str(ANXETY_ROOT / 'settings.json')
+        
+        # --- CHANGE: Logic updated to merge settings instead of overwriting ---
+        
+        # 1. Gather the current UI's widget values (Ngrok token is no longer here)
+        current_ui_values = {k: v.value for k, v in self.widgets.items() if hasattr(v, 'value') and not isinstance(v, list)}
         for key in ['model_list', 'vae_list', 'controlnet_list', 'lora_list']:
             if key in self.widgets:
-                widget_values[key] = [cb.description for cb in self.widgets[key] if cb.value]
+                current_ui_values[key] = [cb.description for cb in self.widgets[key] if cb.value]
+
+        # 2. Read existing WIDGETS data (which includes the token from the bootstrap cell)
+        existing_widgets_data = js.read(SETTINGS_PATH, 'WIDGETS', {})
+
+        # 3. Merge the new UI values into the existing data, preserving the token
+        existing_widgets_data.update(current_ui_values)
+
+        # 4. Save the merged dictionary back to the WIDGETS key
+        js.save(SETTINGS_PATH, 'WIDGETS', existing_widgets_data)
         
-        js.save(str(SETTINGS_PATH), 'ENVIRONMENT.home_path', '/content')
-        js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
-        update_current_webui(widget_values['change_webui'])
+        # 5. Save other essential non-widget settings
+        js.save(SETTINGS_PATH, 'ENVIRONMENT.home_path', '/content')
+        update_current_webui(current_ui_values.get('change_webui'))
+        
         print("✅ Configuration saved to settings.json")
 
 if __name__ == "__main__":
