@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (v9 - Final & Corrected)
+# /content/ANXETY/scripts/launch.py (v10 - FOREGROUND DEBUG for WebUI)
 
 import os
 import sys
@@ -8,10 +8,6 @@ import yaml
 from IPython import get_ipython
 import re
 import shlex
-import asyncio
-import logging
-import requests
-import argparse
 
 # --- Pathing & Settings ---
 try:
@@ -22,7 +18,6 @@ except NameError:
 if str(ANXETY_ROOT / 'modules') not in sys.path:
     sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
 
-from modules.TunnelHub import Tunnel
 import modules.json_utils as js
 
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
@@ -32,14 +27,11 @@ webui_settings = js.read(SETTINGS_PATH, 'WEBUI', {})
 widget_settings = js.read(SETTINGS_PATH, 'WIDGETS', {})
 env_settings = js.read(SETTINGS_PATH, 'ENVIRONMENT', {})
 
-# This now correctly reads the home path saved by the UI
 HOME = Path(env_settings.get('home_path', '/content'))
-
 UI = webui_settings.get('current', 'Forge')
 WEBUI_PATH = Path(webui_settings.get('webui_path', str(HOME / UI)))
 commandline_arguments = widget_settings.get('commandline_arguments', '')
 theme_accent = widget_settings.get('theme_accent', 'anxety')
-ngrok_token = widget_settings.get('ngrok_token')
 
 # --- VENV PATH ACTIVATION ---
 is_classic_ui = UI == 'Classic'
@@ -62,7 +54,6 @@ def get_launch_command():
     if UI == 'ComfyUI':
         return f"python3 main.py {base_args}"
     else:
-        # Robust command building to prevent syntax errors
         command = ["python3", "launch.py"]
         if base_args:
             command.extend(shlex.split(base_args))
@@ -84,7 +75,7 @@ def get_launch_command():
 
 # --- Main Execution ---
 if __name__ == '__main__':
-    print('Please Wait, Launching WebUI and Tunnels...\n')
+    print('Please Wait, Launching WebUI in Foreground Debug Mode...\n')
     
     if not WEBUI_PATH.exists() or not WEBUI_PATH.is_dir():
         print(f"❌ FATAL ERROR: WebUI directory not found at the expected path: {WEBUI_PATH}")
@@ -92,37 +83,11 @@ if __name__ == '__main__':
 
     os.chdir(WEBUI_PATH)
     
-    # --- Setup and Run Tunnels ---
-    tunnel_port = 8188 if UI == 'ComfyUI' else 7860
-    
-    # Enable debug logging as requested
-    tunneling_service = Tunnel(tunnel_port, debug=True)
-    
-    # CORRECTED Gradio Tunnel Command
-    gradio_script_path = ANXETY_ROOT / '__configs__'/ 'gradio-tunneling.py'
-    tunneling_service.add_tunnel(
-        command=f"python3 {gradio_script_path} {tunnel_port}",
-        pattern=re.compile(r'https://[\w-]+\.gradio\.live'),
-        name='Gradio'
-    )
-    
-    if ngrok_token:
-        tunneling_service.add_tunnel(
-            command=f"ngrok http {tunnel_port} --authtoken={ngrok_token} --log=stdout",
-            pattern=re.compile(r'https://[a-zA-Z0-9.-]+\.ngrok-free\.app'),
-            name='Ngrok'
-        )
-    
-    # Launch tunnels in the background
-    tunneling_service.__enter__()
-
-    # --- Launch WebUI Immediately ---
+    # --- Launch WebUI in the FOREGROUND ---
+    # We are removing the tunneling and the '&' to see the WebUI's output directly.
     LAUNCHER_COMMAND = get_launch_command()
     print(f"🚀 Launching {UI} with command: {LAUNCHER_COMMAND}")
 
     ipython = get_ipython()
-    ipython.system_raw(f"{LAUNCHER_COMMAND} &")
-
-    print("\n✅ WebUI and Tunnels are launching in the background.")
-    print("The public URL(s) will appear above shortly as they become available.")
-    print("This cell will keep running to maintain the connection. Interrupt the kernel (Stop button) to end the session.")
+    # Note: The "&" is removed to make this a blocking call.
+    ipython.system_raw(f"{LAUNCHER_COMMAND}")
