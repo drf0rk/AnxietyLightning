@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v19.2 - API Method and Logic Fix)
+# /content/ANXETY/scripts/en/widgets_en.py (v20.1 - Init Fix)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -32,6 +32,17 @@ class AnxietyUI:
         self.url_pool = []
         self.processed_data = []
         self.review_widgets = {}
+        
+        # --- START OF FIX ---
+        # Initialize the selections dictionary. This was the missing piece.
+        self.selections = {
+            'model_list': set(),
+            'vae_list': set(),
+            'controlnet_list': set(),
+            'lora_list': set()
+        }
+        # --- END OF FIX ---
+        
         self.webui_selection_args = {
             'A1111': "--xformers --no-half-vae --enable-insecure-extension-access --disable-console-progressbars --theme dark",
             'ComfyUI': "--use-sage-attention --dont-print-server",
@@ -56,7 +67,6 @@ class AnxietyUI:
         webui_options = ['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX']
         self.widgets['change_webui'] = self.factory.create_dropdown('WebUI:', webui_options, 'ReForge')
         self.widgets['commandline_arguments'] = self.factory.create_text(description="Arguments:")
-        self.widgets['model_list'], self.widgets['vae_list'], self.widgets['controlnet_list'], self.widgets['lora_list'] = [], [], [], []
         self.widgets['downloader_url_input'] = self.factory.create_text("URL:", placeholder="Paste a single Civitai or Hugging Face URL here")
         self.buttons['downloader_add_to_pool'] = self.factory.create_button("Add to Pool", icon='plus')
         self.widgets['downloader_url_pool'] = widgets.SelectMultiple(options=[], rows=8, description='URL Pool:', disabled=False)
@@ -73,10 +83,10 @@ class AnxietyUI:
             self.buttons['downloader_review'],
             widgets.HTML("<hr>")
         ], class_names=['container'])
-        self.layouts['models_box'] = widgets.VBox(self.widgets['model_list'])
-        self.layouts['vaes_box'] = widgets.VBox(self.widgets['vae_list'])
-        self.layouts['cnets_box'] = widgets.VBox(self.widgets['controlnet_list'])
-        self.layouts['loras_box'] = widgets.VBox(self.widgets['lora_list'])
+        self.layouts['models_box'] = widgets.VBox()
+        self.layouts['vaes_box'] = widgets.VBox()
+        self.layouts['cnets_box'] = widgets.VBox()
+        self.layouts['loras_box'] = widgets.VBox()
         accordion = widgets.Accordion(children=[
             self.layouts['models_box'], self.layouts['vaes_box'], self.layouts['cnets_box'], self.layouts['loras_box']
         ])
@@ -103,6 +113,40 @@ class AnxietyUI:
         selected_ui = self.widgets['change_webui'].value
         self.widgets['commandline_arguments'].value = self.webui_selection_args.get(selected_ui, "")
 
+    def _on_sdxl_toggled(self, change):
+        self._update_model_lists()
+
+    def _save_current_selections(self):
+        for key in self.selections.keys():
+            if key in self.widgets and isinstance(self.widgets[key], list):
+                for checkbox in self.widgets[key]:
+                    if checkbox.value:
+                        self.selections[key].add(checkbox.description)
+                    else:
+                        self.selections[key].discard(checkbox.description)
+
+    def _update_model_lists(self):
+        self._save_current_selections()
+        is_xl = self.widgets['sdxl_toggle'].value
+        models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
+        loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
+        if not models_py_path.exists(): return
+        models_data = runpy.run_path(str(models_py_path))
+        loras_data = runpy.run_path(str(loras_py_path))
+        data_map = {
+            'model_list': models_data.get('sdxl_models_data' if is_xl else 'sd15_model_data', {}),
+            'vae_list': models_data.get('sdxl_vae_data' if is_xl else 'sd15_vae_data', {}),
+            'controlnet_list': models_data.get('controlnet_list', {}),
+            'lora_list': loras_data.get('lora_data', {}).get('sdxl_loras' if is_xl else 'sd15_loras', {})
+        }
+        layout_map = {'model_list': self.layouts['models_box'], 'vae_list': self.layouts['vaes_box'],
+                      'controlnet_list': self.layouts['cnets_box'], 'lora_list': self.layouts['loras_box']}
+        for key, data_dict in data_map.items():
+            selection_set = self.selections[key]
+            new_checkboxes = [self.factory.create_checkbox(description=name, value=(name in selection_set)) for name in data_dict.keys()]
+            self.widgets[key] = new_checkboxes
+            layout_map[key].children = tuple(new_checkboxes)
+
     def _on_add_to_pool_clicked(self, b):
         url = self.widgets['downloader_url_input'].value.strip()
         if url and url not in self.url_pool:
@@ -119,41 +163,31 @@ class AnxietyUI:
     def _build_and_display_review_stage(self):
         self.processed_data = []
         for url in self.url_pool:
-            # --- START OF FIX ---
             if "civitai.com" in url:
-                # Use the correct, existing method: get_data()
                 data = self.api.get_data(url)
-                if data:
-                    self.processed_data.append(self._structure_civitai_data(data))
-            else: # Hugging Face
+                if data: self.processed_data.append(self._structure_civitai_data(data))
+            else:
                 data = self._get_huggingface_guesses(url)
                 if data: self.processed_data.append(data)
-        # --- END OF FIX ---
         
         type_order = {'Checkpoint': 0, 'LORA': 1, 'VAE': 2}
         self.processed_data.sort(key=lambda x: (type_order.get(x.get('type', 99), 99), x.get('name', '')))
-
+        
         review_rows = []
         self.review_widgets = {}
         
         for i, item in enumerate(self.processed_data):
             is_hf = item.get('source') == 'HuggingFace'
             name_label = self.factory.create_html(f"<b>{item.get('name', 'Unknown')}</b> ({item.get('source', 'Unknown')})")
-            
             type_val = item.get('type')
             base_model_val = item.get('baseModel')
-
             type_dropdown = self.factory.create_dropdown(options=['Checkpoint', 'LORA', 'VAE'], value=type_val, description="Asset Type:", disabled=not is_hf)
             base_model_dropdown = self.factory.create_dropdown(options=['SD 1.5', 'SDXL 1.0', 'Pony', 'Unknown'], value=base_model_val, description="Base Model:", disabled=not is_hf)
-            
             file_options = {f['name']: f['downloadUrl'] for f in item.get('files', [])}
-            # The file dropdown now works as intended, showing files for the detected version
             file_dropdown = self.factory.create_dropdown(options=list(file_options.keys()), description="File:")
-            
             self.review_widgets[i] = {"name": item.get('name'), "type": type_dropdown, "base_model": base_model_dropdown, "file_url_map": file_options, "file_selection": file_dropdown}
             
             row_widgets = [name_label, type_dropdown, base_model_dropdown, file_dropdown]
-            
             row_layout = widgets.Layout(padding='10px', margin='5px 0 0 0', border_radius='5px')
             if is_hf: row_layout.border = '3px solid #FAA61A'; row_layout.background = 'rgba(250, 166, 26, 0.1)'
             elif type_val == 'Checkpoint': row_layout.border = '3px solid #7289DA'; row_layout.background = 'rgba(114, 137, 218, 0.1)'
@@ -176,13 +210,11 @@ class AnxietyUI:
             for i, item_widgets in self.review_widgets.items():
                 selected_file_name = item_widgets['file_selection'].value
                 final_data = {
-                    'model': {'type': item_widgets['type'].value, 'name': item_widgets['name']},
-                    'name': 'v1.0',
+                    'model': {'type': item_widgets['type'].value, 'name': item_widgets['name']}, 'name': 'v1.0',
                     'baseModel': item_widgets['base_model'].value,
                     'files': [{'name': selected_file_name, 'downloadUrl': item_widgets['file_url_map'][selected_file_name]}]
                 }
                 self._categorize_and_write(final_data)
-        
         print("✅ All items processed. Returning to the main menu...")
         time.sleep(2)
         self.url_pool = []
@@ -262,36 +294,6 @@ class AnxietyUI:
         new_source_code = ast.unparse(tree)
         with open(file_path, 'w', encoding='utf-8') as f: f.write(new_source_code)
         print(f"✅ Successfully added '{new_entry['display_name']}' to {dict_name}.")
-            
-    def _on_sdxl_toggled(self, change): self._update_model_lists()
-    def _update_model_lists(self):
-        self._save_current_selections()
-        is_xl = self.widgets['sdxl_toggle'].value
-        models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
-        loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
-        if not models_py_path.exists(): return
-        models_data = runpy.run_path(str(models_py_path))
-        loras_data = runpy.run_path(str(loras_py_path))
-        data_map = {
-            'model_list': models_data.get('sdxl_models_data' if is_xl else 'sd15_model_data', {}),
-            'vae_list': models_data.get('sdxl_vae_data' if is_xl else 'sd15_vae_data', {}),
-            'controlnet_list': models_data.get('controlnet_list', {}),
-            'lora_list': loras_data.get('lora_data', {}).get('sdxl_loras' if is_xl else 'sd15_loras', {})
-        }
-        layout_map = {'model_list': self.layouts['models_box'], 'vae_list': self.layouts['vaes_box'],
-                      'controlnet_list': self.layouts['cnets_box'], 'lora_list': self.layouts['loras_box']}
-        for key, data_dict in data_map.items():
-            selection_set = self.selections[key]
-            new_checkboxes = [self.factory.create_checkbox(description=name, value=(name in selection_set)) for name in data_dict.keys()]
-            self.widgets[key] = new_checkboxes
-            layout_map[key].children = tuple(new_checkboxes)
-
-    def _save_current_selections(self):
-        for key in self.selections.keys():
-            if key in self.widgets:
-                for checkbox in self.widgets[key]:
-                    if checkbox.value: self.selections[key].add(checkbox.description)
-                    else: self.selections[key].discard(checkbox.description)
         
     def on_launch_click(self, b):
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
