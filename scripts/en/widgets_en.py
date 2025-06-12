@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v20.2 - URL Pool Textarea & Debugging)
+# /content/ANXETY/scripts/en/widgets_en.py (v20.3 - Review UI Display Debug)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -29,7 +29,7 @@ class AnxietyUI:
         self.layouts = {}
         self.buttons = {}
         self.api = CivitAiAPI(js.read(ANXETY_ROOT / 'settings.json', 'WIDGETS.civitai_token'))
-        self.url_pool = [] # This will still store the list of individual URLs
+        self.url_pool = [] 
         self.processed_data = []
         self.review_widgets = {}
         self.selections = {'model_list': set(), 'vae_list': set(), 'controlnet_list': set(), 'lora_list': set()}
@@ -146,9 +146,14 @@ class AnxietyUI:
     def _build_and_display_review_stage(self):
         self.processed_data = []
         with self.layouts['main_output_area']: # Direct output here
+            print("\n--- Starting Data Fetch for URLs ---")
             print("Fetching data for URLs. This might take a moment...")
-            for url in self.url_pool:
-                print(f"  Processing URL: {url}")
+            
+            # --- Debugging: Print URLs in pool ---
+            print("URLs in pool:", self.url_pool)
+
+            for url_index, url in enumerate(self.url_pool):
+                print(f"\n  Processing URL {url_index + 1}/{len(self.url_pool)}: {url}")
                 data = None
                 try:
                     if "civitai.com" in url:
@@ -157,7 +162,7 @@ class AnxietyUI:
                         if data:
                             print(f"    Civitai API returned data for: {data.name} (Type: {data.type})")
                         else:
-                            print(f"    Civitai API returned no data or failed for {url}.")
+                            print(f"    Civitai API returned no data or failed for {url}. This might happen for unsupported Civitai URLs (e.g., direct download links instead of model pages).")
                     elif "huggingface.co" in url:
                         print(f"    Detected Hugging Face URL. Guessing asset type...")
                         data = self._get_huggingface_guesses(url)
@@ -170,20 +175,21 @@ class AnxietyUI:
 
                     if data: 
                         self.processed_data.append(data)
+                        print(f"    URL successfully processed and added to processed_data.")
                     else:
                         print(f"    ⚠️ Skipping {url} due to no data or unsupported format.")
                 except Exception as e:
-                    print(f"    ❌ Error processing {url}: {e}", file=sys.stderr)
+                    print(f"    ❌ An unexpected error occurred while processing {url}: {e}", file=sys.stderr)
             
             if not self.processed_data:
-                print("❌ No valid model data could be retrieved from the provided URLs. Please check URLs and try again.")
+                print("\n❌ No valid model data could be retrieved from the provided URLs. Please check URLs and try again.")
                 # Optionally return to initial view or display a message
                 self.layouts['main_output_area'].children = [self.layouts['initial_view']]
                 return
 
 
-            print(f"Successfully processed {len(self.processed_data)} URLs. Building review UI.")
-            type_order = {'Checkpoint': 0, 'LORA': 1, 'VAE': 2, 'ControlNet': 3, 'Embeddings': 4} # Added more types for sorting
+            print(f"\nSuccessfully processed {len(self.processed_data)} URLs. Building review UI.")
+            type_order = {'Checkpoint': 0, 'LORA': 1, 'VAE': 2, 'ControlNet': 3, 'Embedding': 4, 'TextualInversion': 4, 'Hypernetwork': 5, 'Other': 99} # Added more types for sorting
             self.processed_data.sort(key=lambda x: (type_order.get(x.type if hasattr(x, 'type') else x.get('type', 'Unknown'), 99), x.name if hasattr(x, 'name') else x.get('name', '')))
 
             css = """<style> .review-row { border-radius: 5px; padding: 10px; margin-bottom: 5px; border-left: 5px solid; } .review-row-model { border-left-color: #7289DA; background-color: rgba(114, 137, 218, 0.1); } .review-row-lora { border-left-color: #43B581; background-color: rgba(67, 181, 129, 0.1); } .review-row-hf { border-left-color: #FAA61A; background-color: rgba(250, 166, 26, 0.1); } </style>"""
@@ -191,22 +197,24 @@ class AnxietyUI:
 
             review_rows = []
             self.review_widgets = {}
+            print(f"Preparing {len(self.processed_data)} items for review panel.")
             for i, item in enumerate(self.processed_data):
+                print(f"  Item {i+1}: Name='{item.name if hasattr(item, 'name') else item.get('name', 'Unknown')}', Type='{item.type if hasattr(item, 'type') else item.get('type', 'Unknown')}'")
                 is_hf = isinstance(item, dict)
                 name = item.get('name') if is_hf else item.name
                 source = item.get('source', 'Civitai') if is_hf else 'Civitai'
                 
                 name_label = self.factory.create_html(f"<b>{name}</b> ({source})")
                 
-                # Ensure type_val matches expected options, default to 'Checkpoint' if 'Unknown'
-                type_options = ['Checkpoint', 'LORA', 'VAE', 'ControlNet', 'Embedding', 'TextualInversion', 'Hypernetwork', 'Other'] # Expanded options
+                # Ensure type_val matches expected options, default to 'Other' if 'Unknown' or not in list
+                type_options = ['Checkpoint', 'LORA', 'VAE', 'ControlNet', 'Embedding', 'TextualInversion', 'Hypernetwork', 'Other'] 
                 type_val = item.get('type') if is_hf else item.type
                 if type_val not in type_options:
-                    type_val = 'Other' # Default to 'Other' for unknown types
+                    type_val = 'Other' 
                 type_dropdown = self.factory.create_dropdown(options=type_options, value=type_val, description="Asset Type:", disabled=not is_hf)
                 
-                base_model_options = ['SD 1.5', 'SDXL 1.0', 'Pony', 'Unknown', 'Other'] # Expanded options
-                base_model_val = item.get('baseModel') if is_hf else (item.model_versions[0].base_model if item.model_versions else 'Unknown')
+                base_model_options = ['SD 1.5', 'SDXL 1.0', 'Pony', 'Unknown', 'Other'] 
+                base_model_val = item.get('baseModel') if is_hf else (item.model_versions[0].base_model if hasattr(item, 'model_versions') and item.model_versions else 'Unknown')
                 if base_model_val not in base_model_options:
                     base_model_val = 'Other'
                 base_model_dropdown = self.factory.create_dropdown(options=base_model_options, value=base_model_val, description="Base Model:", disabled=not is_hf)
@@ -214,50 +222,67 @@ class AnxietyUI:
                 row_widgets = [name_label, type_dropdown, base_model_dropdown]
                 
                 file_dropdown = None
+                initial_files = {} # To store file_name: download_url pairs
+                
                 if not is_hf and hasattr(item, 'model_versions') and item.model_versions:
+                    print(f"    Civitai item: {len(item.model_versions)} versions detected.")
                     versions_map = {v.name: v for v in item.model_versions}
                     version_dropdown = self.factory.create_dropdown(options=list(versions_map.keys()), description="Model Version:")
                     
+                    # Set initial files from the first version
+                    if item.model_versions and item.model_versions[0].files:
+                        initial_files = {f.name: f.download_url for f in item.model_versions[0].files}
+                        print(f"    Initial version '{item.model_versions[0].name}' has {len(initial_files)} files.")
+                    else:
+                        print(f"    No files found for initial version of Civitai item.")
+
                     def _update_file_options(change, item_index=i):
-                        selected_version_obj = versions_map[change['new']]
-                        file_opts = {f.name: f.download_url for f in selected_version_obj.files}
-                        self.review_widgets[item_index]['file_selection'].options = list(file_opts.keys())
-                        self.review_widgets[item_index]['file_url_map'] = file_opts
-                        # Update default selected file to the first in the new list if available
-                        if file_opts:
-                            self.review_widgets[item_index]['file_selection'].value = list(file_opts.keys())[0]
+                        selected_version_name = change['new']
+                        selected_version_obj = versions_map.get(selected_version_name)
+                        current_file_opts = {}
+                        if selected_version_obj and selected_version_obj.files:
+                            current_file_opts = {f.name: f.download_url for f in selected_version_obj.files}
+                        
+                        self.review_widgets[item_index]['file_selection'].options = list(current_file_opts.keys())
+                        self.review_widgets[item_index]['file_url_map'] = current_file_opts
+                        if current_file_opts:
+                            self.review_widgets[item_index]['file_selection'].value = list(current_file_opts.keys())[0]
+                        with self.layouts['main_output_area']:
+                            print(f"    File dropdown updated for item {item_index+1} to version '{selected_version_name}' with {len(current_file_opts)} files.")
 
                     version_dropdown.observe(_update_file_options, names='value')
                     
-                    initial_files = {f.name: f.download_url for f in item.model_versions[0].files}
                     file_dropdown = self.factory.create_dropdown(options=list(initial_files.keys()), description="File:")
-                    # Set initial value if available
                     if initial_files:
-                        file_dropdown.value = list(initial_files.keys())[0]
+                        file_dropdown.value = list(initial_files.keys())[0] # Set default selected file
                     row_widgets.append(version_dropdown)
-                elif is_hf: # For Hugging Face, there's usually just one "file" guess
+                elif is_hf: 
+                    print("    Hugging Face item: Assuming single file.")
                     initial_files = {f['name']: f['downloadUrl'] for f in item.get('files', [])}
                     file_dropdown = self.factory.create_dropdown(options=list(initial_files.keys()), description="File:", disabled=True)
                     if initial_files:
                         file_dropdown.value = list(initial_files.keys())[0]
                 
-                if file_dropdown: # Only append if a file dropdown was created
+                if file_dropdown and initial_files: # Only append if a file dropdown was created and has options
                     row_widgets.append(file_dropdown)
-                else: # Fallback if no file_dropdown could be created (e.g. no versions/files)
-                    print(f"    ⚠️ No downloadable files found for {name}. Skipping file selection for this item.")
-                    continue # Skip this item if no downloadable files are found.
+                    self.review_widgets[i] = {"name": name, "type": type_dropdown, "base_model": base_model_dropdown, "file_url_map": initial_files, "file_selection": file_dropdown}
+                    
+                    row_layout = widgets.Layout(padding='10px', margin='5px 0 0 0', border_radius='5px')
+                    if is_hf: row_layout.border = '3px solid #FAA61A'; row_layout.background = 'rgba(250, 166, 26, 0.1)'
+                    elif type_val == 'Checkpoint': row_layout.border = '3px solid #7289DA'; row_layout.background = 'rgba(114, 137, 218, 0.1)'
+                    elif type_val == 'LORA': row_layout.border = '3px solid #43B581'; row_layout.background = 'rgba(67, 181, 129, 0.1)'
+                    elif type_val == 'VAE': row_layout.border = '3px solid #b26eeb'; row_layout.background = 'rgba(178, 110, 235, 0.1)' 
+                    elif type_val == 'ControlNet': row_layout.border = '3px solid #6ee7b7'; row_layout.background = 'rgba(110, 231, 183, 0.1)'
+                    elif type_val == 'Embedding' or type_val == 'TextualInversion': row_layout.border = '3px solid #FFD700'; row_layout.background = 'rgba(255, 215, 0, 0.1)' # Gold for embeddings
+                    elif type_val == 'Hypernetwork': row_layout.border = '3px solid #DA70D6'; row_layout.background = 'rgba(218, 112, 214, 0.1)' # Orchid for hypernets
+                    
+                    row = widgets.VBox(row_widgets, layout=row_layout)
+                    review_rows.append(row)
+                else: 
+                    print(f"    ⚠️ Skipping item '{name}': No valid file dropdown could be created or no initial files found. This item will not appear in the review panel.", file=sys.stderr)
+                    # Do not append to review_rows if no valid file options.
 
-                self.review_widgets[i] = {"name": name, "type": type_dropdown, "base_model": base_model_dropdown, "file_url_map": initial_files, "file_selection": file_dropdown}
-                
-                row_layout = widgets.Layout(padding='10px', margin='5px 0 0 0', border_radius='5px')
-                if is_hf: row_layout.border = '3px solid #FAA61A'; row_layout.background = 'rgba(250, 166, 26, 0.1)'
-                elif type_val == 'Checkpoint': row_layout.border = '3px solid #7289DA'; row_layout.background = 'rgba(114, 137, 218, 0.1)'
-                elif type_val == 'LORA': row_layout.border = '3px solid #43B581'; row_layout.background = 'rgba(67, 181, 129, 0.1)'
-                elif type_val == 'VAE': row_layout.border = '3px solid #b26eeb'; row_layout.background = 'rgba(178, 110, 235, 0.1)' # Example color for VAE
-                elif type_val == 'ControlNet': row_layout.border = '3px solid #6ee7b7'; row_layout.background = 'rgba(110, 231, 183, 0.1)' # Example color for ControlNet
-                
-                row = widgets.VBox(row_widgets, layout=row_layout)
-                review_rows.append(row)
+            print(f"Final count of items prepared for review panel: {len(review_rows)}")
             
             if not review_rows:
                 print("❌ No items were successfully prepared for the review stage. Returning to main menu.")
@@ -267,7 +292,10 @@ class AnxietyUI:
             confirm_button = self.factory.create_button("Confirm & Add to Library", icon='check', class_names=['button_save'])
             confirm_button.on_click(self._on_confirm_and_write_clicked)
             review_stage_layout = widgets.VBox([self.factory.create_header("Downloader - Stage 2: Review & Confirm"), *review_rows, confirm_button])
+            
+            # --- Key change: Set children of the main_output_area ---
             self.layouts['main_output_area'].children = [review_stage_layout]
+            
             print("Review panel displayed. Please categorize and confirm your selections.")
 
 
@@ -278,11 +306,12 @@ class AnxietyUI:
             print("--- Writing Selections to Data Scripts ---")
             success_count = 0
             for i, item_widgets in self.review_widgets.items():
+                print(f"  Processing confirmed item: '{item_widgets.get('name', 'Unknown')}'")
                 try:
                     selected_file_name = item_widgets['file_selection'].value
                     # Re-verify that selected_file_name is valid
                     if not selected_file_name or selected_file_name not in item_widgets['file_url_map']:
-                        print(f"⚠️ Skipping '{item_widgets['name']}': No valid file selected or found in map. This might indicate an issue with initial data fetching.", file=sys.stderr)
+                        print(f"    ⚠️ Skipping '{item_widgets['name']}': No valid file selected or found in map. This might indicate an issue with initial data fetching.", file=sys.stderr)
                         continue
 
                     final_data = {'model': {'type': item_widgets['type'].value, 'name': item_widgets['name']}, 
@@ -292,7 +321,7 @@ class AnxietyUI:
                     self._categorize_and_write(final_data)
                     success_count += 1
                 except Exception as e:
-                    print(f"❌ Error processing item '{item_widgets.get('name', 'Unknown')}': {e}", file=sys.stderr)
+                    print(f"    ❌ Error processing item '{item_widgets.get('name', 'Unknown')}' for writing: {e}", file=sys.stderr)
 
             print(f"✅ Processed {success_count} items. Returning to main menu...")
             time.sleep(2)
@@ -401,10 +430,10 @@ class AnxietyUI:
                                     key_node = ast.Constant(value=new_entry['display_name'])
                                     
                                     # Handle different value structures for loras vs. models/vaes
-                                    if asset_type == 'LORA' or asset_type == 'ControlNet': # LoRAs and ControlNets are lists of dicts
+                                    if asset_type == 'LORA' or asset_type == 'ControlNet' or asset_type == 'Embedding' or asset_type == 'TextualInversion' or asset_type == 'Hypernetwork': # These are lists of dicts
                                         value_node = ast.List(elts=[ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], 
                                                                              values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])])
-                                    else: # Models, VAEs, Embeddings, Hypernetworks are single dicts
+                                    else: # Models, VAEs are single dicts
                                         value_node = ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], 
                                                               values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])
                                     
@@ -437,13 +466,15 @@ class AnxietyUI:
             loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
 
             # Define potential new data files
-            embeddings_py_path = ANXETY_ROOT / 'scripts' / '_embeddings-data.py'
-            hypernetworks_py_path = ANXETY_ROOT / 'scripts' / '_hypernetworks-data.py'
+            embeddings_py_path = ANXETY_ROOT / 'scripts' / '_embeddings-data.py' # Add this file
+            hypernetworks_py_path = ANXETY_ROOT / 'scripts' / '_hypernetworks-data.py' # Add this file
 
+            # Ensure these files exist before attempting to read them to avoid FileNotFoundError
+            for p in [models_py_path, loras_py_path]:
+                if not p.exists(): 
+                    print(f"    ⚠️ Data file not found: {p.name}. Skipping relevant model list update.", file=sys.stderr)
+                    return # Exit if critical data files are missing
 
-            if not models_py_path.exists(): 
-                print(f"    ⚠️ Model data file not found at {models_py_path}. Skipping model list update.", file=sys.stderr); return
-            
             models_data = runpy.run_path(str(models_py_path))
             loras_data = runpy.run_path(str(loras_py_path))
             
@@ -456,20 +487,22 @@ class AnxietyUI:
                         'vae_list': models_data.get('sdxl_vae_data' if is_xl else 'sd15_vae_data', {}),
                         'controlnet_list': models_data.get('controlnet_list', {}),
                         'lora_list': loras_data.get('lora_data', {}).get('sdxl_loras' if is_xl else 'sd15_loras', {}),
-                        'embedding_list': embeddings_data.get('sdxl_embeddings' if is_xl else 'sd15_embeddings', {}), # New list
-                        'hypernetwork_list': hypernetworks_data.get('sdxl_hypernetworks' if is_xl else 'sd15_hypernetworks', {}) # New list
+                        'embedding_list': embeddings_data.get('sdxl_embeddings' if is_xl else 'sd15_embeddings', {}), 
+                        'hypernetwork_list': hypernetworks_data.get('sdxl_hypernetworks' if is_xl else 'sd15_hypernetworks', {}) 
                         }
             
-            # Update layout map for new accordion sections
+            # This part needs corresponding layout boxes in _create_layouts and accordion titles
+            # You'll need to create: self.layouts['embeddings_box'], self.layouts['hypernetworks_box']
+            # And add them to the accordion's children and titles list.
             layout_map = {'model_list': self.layouts['models_box'], 'vae_list': self.layouts['vaes_box'],
                           'controlnet_list': self.layouts['cnets_box'], 'lora_list': self.layouts['loras_box'],
-                          # You'll need to create new VBoxes in _create_layouts and add them to the accordion for these:
+                          # Add these lines after creating the VBoxes in _create_layouts
                           # 'embedding_list': self.layouts['embeddings_box'],
                           # 'hypernetwork_list': self.layouts['hypernetworks_box']
                           }
 
             for key, data_dict in data_map.items():
-                if key in layout_map: # Only process if a corresponding layout box exists
+                if key in layout_map: 
                     selection_set = self.selections.get(key, set())
                     new_checkboxes = [self.factory.create_checkbox(description=name, value=(name in selection_set)) for name in data_dict.keys()]
                     self.widgets[key] = new_checkboxes
@@ -517,8 +550,13 @@ class AnxietyUI:
             })
 
             # Example: Save Ngrok token if you add it to widgets
-            # if 'ngrok_token' in self.widgets:
-            #    widget_values['ngrok_token'] = self.widgets['ngrok_token'].value
+            if 'ngrok_token_widget' in self.widgets and self.widgets['ngrok_token_widget'].value:
+               widget_values['ngrok_token'] = self.widgets['ngrok_token_widget'].value # Assuming ngrok_token_widget exists
+            else:
+                # If ngrok_token_widget doesn't exist or is empty, ensure 'ngrok_token' is not saved with an old value
+                if 'ngrok_token' in widget_values:
+                    del widget_values['ngrok_token']
+
 
             js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
             js.save(str(SETTINGS_PATH), 'ENVIRONMENT.home_path', '/content') # Explicitly set home path
