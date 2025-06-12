@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v18.0 - Implemented Review Stage)
+# /content/ANXETY/scripts/en/widgets_en.py (v19.0 - Enhanced Review Stage)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -31,7 +31,7 @@ class AnxietyUI:
         self.api = CivitAiAPI(js.read(ANXETY_ROOT / 'settings.json', 'WIDGETS.civitai_token'))
         self.url_pool = []
         self.processed_data = []
-        self.review_widgets = {} # To hold the dynamic widgets from the review stage
+        self.review_widgets = {}
         self.webui_selection_args = {
             'A1111': "--xformers --no-half-vae --enable-insecure-extension-access --disable-console-progressbars --theme dark",
             'ComfyUI': "--use-sage-attention --dont-print-server",
@@ -57,18 +57,13 @@ class AnxietyUI:
         self.widgets['change_webui'] = self.factory.create_dropdown('WebUI:', webui_options, 'ReForge')
         self.widgets['commandline_arguments'] = self.factory.create_text(description="Arguments:")
         self.widgets['model_list'], self.widgets['vae_list'], self.widgets['controlnet_list'], self.widgets['lora_list'] = [], [], [], []
-        
-        # Widgets for Stage 1 of the downloader
         self.widgets['downloader_url_input'] = self.factory.create_text("URL:", placeholder="Paste a single Civitai or Hugging Face URL here")
         self.buttons['downloader_add_to_pool'] = self.factory.create_button("Add to Pool", icon='plus')
         self.widgets['downloader_url_pool'] = widgets.SelectMultiple(options=[], rows=8, description='URL Pool:', disabled=False)
         self.buttons['downloader_review'] = self.factory.create_button("Next: Review & Categorize", icon='arrow-right', button_style='info')
 
     def _create_layouts(self):
-        # Create a container for the entire UI that can be cleared and replaced
         self.layouts['main_output_area'] = widgets.VBox()
-        
-        # --- Stage 1: Downloader UI ---
         downloader_input_box = self.factory.create_hbox([self.widgets['downloader_url_input'], self.buttons['downloader_add_to_pool']], layout={'width': '100%'})
         self.widgets['downloader_url_input'].layout.width = '85%'
         downloader_container = self.factory.create_vbox([
@@ -78,8 +73,6 @@ class AnxietyUI:
             self.buttons['downloader_review'],
             widgets.HTML("<hr>")
         ], class_names=['container'])
-        
-        # --- Accordion for standard models ---
         self.layouts['models_box'] = widgets.VBox(self.widgets['model_list'])
         self.layouts['vaes_box'] = widgets.VBox(self.widgets['vae_list'])
         self.layouts['cnets_box'] = widgets.VBox(self.widgets['controlnet_list'])
@@ -89,20 +82,14 @@ class AnxietyUI:
         ])
         titles = ['Checkpoints', 'VAEs', 'ControlNets', 'LoRAs']
         for i, title in enumerate(titles): accordion.set_title(i, title)
-        
-        # --- Top-level controls and main launch button ---
         self.buttons['launch'] = self.factory.create_button(description="Install, Download & Launch", class_names=['button', 'button_save'], icon='paper-plane')
         top_bar = widgets.HBox([self.widgets['change_webui'], self.widgets['sdxl_toggle'], self.widgets['detailed_download']])
-        
-        # The initial view of the UI
         self.layouts['initial_view'] = widgets.VBox([
             top_bar, self.widgets['commandline_arguments'], downloader_container,
             accordion, self.buttons['launch']
         ])
-
-        # Set the main output area's initial content
         self.layouts['main_output_area'].children = [self.layouts['initial_view']]
-        self.layouts['main_container'] = self.layouts['main_output_area'] # The top-level widget to display
+        self.layouts['main_container'] = self.layouts['main_output_area']
 
     def _assign_callbacks(self):
         self.widgets['sdxl_toggle'].observe(self._on_sdxl_toggled, names='value')
@@ -124,44 +111,81 @@ class AnxietyUI:
             self.widgets['downloader_url_input'].value = ""
 
     def _on_downloader_review_clicked(self, b):
-        """Kicks off the processing and builds the review UI stage."""
-        if not self.url_pool:
-            print("⚠️ URL Pool is empty. Please add at least one URL.")
-            return
-
+        if not self.url_pool: print("⚠️ URL Pool is empty."); return
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
         self._build_and_display_review_stage()
         b.description = "Next: Review & Categorize"; b.icon = "arrow-right"; b.disabled = False
-        
+
     def _build_and_display_review_stage(self):
-        """Processes URLs and builds the second stage UI for manual selection."""
         self.processed_data = []
-        
-        # Process URLs synchronously
         for url in self.url_pool:
-            if "civitai.com" in url:
-                details = self.api.get_data(url)
-                if details: self.processed_data.append(self._structure_civitai_data(details, url))
-            elif "huggingface.co" in url:
-                self.processed_data.append(self._get_huggingface_guesses(url))
-        
-        # Build the review UI
+            data = self.api.get_model(url) if "civitai.com" in url else self._get_huggingface_guesses(url)
+            if data: self.processed_data.append(data)
+
+        # --- NEW: Sorting Logic ---
+        type_order = {'Checkpoint': 0, 'LORA': 1, 'VAE': 2}
+        self.processed_data.sort(key=lambda x: (type_order.get(x.get('type', 99), 99), x.get('name', '')))
+
+        # --- NEW: CSS for Color Coding ---
+        color_css = """
+        <style>
+            .review-row { border-radius: 5px; padding: 10px; margin-bottom: 5px; border-left: 5px solid; }
+            .review-row-model { border-left-color: #7289DA; background-color: rgba(114, 137, 218, 0.1); }
+            .review-row-lora { border-left-color: #43B581; background-color: rgba(67, 181, 129, 0.1); }
+            .review-row-hf { border-left-color: #FAA61A; background-color: rgba(250, 166, 26, 0.1); }
+        </style>
+        """
+        display(HTML(color_css))
+
         review_rows = []
         self.review_widgets = {}
         
         for i, item in enumerate(self.processed_data):
-            is_hf = item['source'] == 'HuggingFace'
-            name_label = self.factory.create_html(f"<b>{item['name']}</b> ({item['source']})")
+            is_hf = item.get('source') == 'HuggingFace'
             
-            type_dropdown = self.factory.create_dropdown(options=['Checkpoint', 'LORA', 'VAE'], value=item['type'], description="Asset Type:", disabled=not is_hf)
-            base_model_dropdown = self.factory.create_dropdown(options=['SD 1.5', 'SDXL 1.0', 'Pony', 'Unknown'], value=item['base_model'], description="Base Model:", disabled=not is_hf)
+            # --- NEW: Dynamic Dropdowns for Civitai ---
+            if not is_hf: # It's a Civitai model
+                versions_map = {v.name: v for v in item.model_versions}
+                version_dropdown = self.factory.create_dropdown(options=list(versions_map.keys()), description="Model Version:")
+                
+                # Function to update file options when version changes
+                def _update_file_options(change, item_index=i):
+                    selected_version_name = change['new']
+                    selected_version_obj = versions_map[selected_version_name]
+                    file_opts = {f.name: f.download_url for f in selected_version_obj.files}
+                    self.review_widgets[item_index]['file_selection'].options = list(file_opts.keys())
+                    self.review_widgets[item_index]['file_url_map'] = file_opts
+
+                version_dropdown.observe(_update_file_options, names='value')
+                
+                # Initial file options from the first version
+                initial_version = item.model_versions[0]
+                file_options = {f.name: f.download_url for f in initial_version.files}
+                file_dropdown = self.factory.create_dropdown(options=list(file_options.keys()), description="File:")
+            else: # It's a Hugging Face model
+                version_dropdown = None
+                file_options = {f['name']: f['downloadUrl'] for f in item.get('files', [])}
+                file_dropdown = self.factory.create_dropdown(options=list(file_options.keys()), description="File:", disabled=True)
+
+            name_label = self.factory.create_html(f"<b>{item.get('name', 'Unknown')}</b> ({item.get('source', 'Unknown')})")
+            type_dropdown = self.factory.create_dropdown(options=['Checkpoint', 'LORA', 'VAE'], value=item.get('type'), description="Asset Type:", disabled=not is_hf)
+            base_model_dropdown = self.factory.create_dropdown(options=['SD 1.5', 'SDXL 1.0', 'Pony', 'Unknown'], value=item.get('baseModel'), description="Base Model:", disabled=not is_hf)
             
-            file_options = {f['name']: f['downloadUrl'] for f in item.get('files', [])}
-            file_dropdown = self.factory.create_dropdown(options=list(file_options.keys()), description="File Version:")
+            self.review_widgets[i] = {"name": item.get('name'), "type": type_dropdown, "base_model": base_model_dropdown, "file_url_map": file_options, "file_selection": file_dropdown}
             
-            self.review_widgets[i] = {"name": item['name'], "type": type_dropdown, "base_model": base_model_dropdown, "file_url_map": file_options, "file_selection": file_dropdown}
+            row_widgets = [name_label, type_dropdown, base_model_dropdown]
+            if version_dropdown: row_widgets.append(version_dropdown)
+            row_widgets.append(file_dropdown)
             
-            row = widgets.VBox([name_label, type_dropdown, base_model_dropdown, file_dropdown, widgets.HTML("<hr style='border-color: #444;'>")])
+            row = widgets.VBox(row_widgets, layout={'padding': '10px'})
+            
+            # --- NEW: Apply color-coding class ---
+            css_class = 'review-row'
+            if is_hf: css_class += ' review-row-hf'
+            elif item.get('type') == 'Checkpoint': css_class += ' review-row-model'
+            elif item.get('type') == 'LORA': css_class += ' review-row-lora'
+            row.add_class(css_class)
+            
             review_rows.append(row)
         
         confirm_button = self.factory.create_button("Confirm & Add to Library", icon='check', class_names=['button_save'])
@@ -171,52 +195,37 @@ class AnxietyUI:
         self.layouts['main_output_area'].children = [review_stage_layout]
         
     def _on_confirm_and_write_clicked(self, b):
-        """Reads the corrected data from the review UI and writes it to files."""
         b.description = "Writing..."; b.icon = "spinner"; b.disabled = True
-        
         output_log = widgets.Output()
         display(output_log)
-        
         with output_log:
             print("--- Writing Selections to Data Scripts ---")
             for i, item_widgets in self.review_widgets.items():
                 selected_file_name = item_widgets['file_selection'].value
-                
-                # Reconstruct the data packet with user's choices
                 final_data = {
                     'model': {'type': item_widgets['type'].value, 'name': item_widgets['name']},
-                    'name': 'v1.0',
-                    'baseModel': item_widgets['base_model'].value,
+                    'name': 'v1.0', 'baseModel': item_widgets['base_model'].value,
                     'files': [{'name': selected_file_name, 'downloadUrl': item_widgets['file_url_map'][selected_file_name]}]
                 }
                 self._categorize_and_write(final_data)
-        
         print("✅ All items processed. Returning to the main menu...")
         time.sleep(2)
-        
-        # Reset and go back to the initial view
         self.url_pool = []
         self.widgets['downloader_url_pool'].options = []
         self._update_model_lists()
         self.layouts['main_output_area'].children = [self.layouts['initial_view']]
 
-    # --- Backend Data Processing (mostly unchanged) ---
     def _get_huggingface_guesses(self, url):
-        # ... (This function remains unchanged)
         filename = url.split('/')[-1].split('?')[0]
         file_type = "Checkpoint"
         if "lora" in filename.lower(): file_type = "LORA"
         base_model = "Unknown"
         if "sdxl" in filename.lower() or "xl" in url.lower(): base_model = "SDXL 1.0"
         elif "1.5" in filename.lower() or "1-5" in url.lower(): base_model = "SD 1.5"
-        return {'source': 'HuggingFace', 'name': filename.rsplit('.', 1)[0], 'type': file_type, 'base_model': base_model, 'files': [{'name': filename, 'downloadUrl': url.replace("/blob/", "/resolve/")}]}
-        
-    def _structure_civitai_data(self, data, original_url):
-        return {'source': 'Civitai', 'name': data.get('model', {}).get('name', 'Unknown'), 'type': data.get('model', {}).get('type', 'Unknown'),
-                'base_model': data.get('baseModel', 'Unknown'), 'files': data.get('files', []), 'url': original_url }
+        return {'source': 'HuggingFace', 'name': filename.rsplit('.', 1)[0], 'type': file_type, 'baseModel': base_model, 'files': [{'name': filename, 'downloadUrl': url.replace("/blob/", "/resolve/")}]}
 
     def _categorize_and_write(self, data):
-        # ... (This function remains unchanged)
+        # ... (This logic remains the same)
         asset_type = data.get('model', {}).get('type', 'Unknown')
         base_model = data.get('baseModel', 'Unknown')
         target_file, target_dict = None, None
@@ -236,7 +245,7 @@ class AnxietyUI:
         self._update_data_file_with_ast(target_file, target_dict, new_entry)
         
     def _update_data_file_with_ast(self, file_path, dict_name, new_entry):
-        # ... (This function remains unchanged, including the fix for LoRA files)
+        # ... (This logic remains the same)
         if not file_path.exists(): print(f"❌ Error: Data file not found at {file_path}"); return
         with open(file_path, 'r', encoding='utf-8') as f: source_code = f.read()
         tree = ast.parse(source_code)
@@ -279,7 +288,7 @@ class AnxietyUI:
             
     def _on_sdxl_toggled(self, change): self._update_model_lists()
     def _update_model_lists(self):
-        # ... (This function remains unchanged)
+        # ... (This logic remains the same)
         is_xl = self.widgets['sdxl_toggle'].value
         models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
         loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
@@ -300,7 +309,7 @@ class AnxietyUI:
         self.layouts['loras_box'].children = tuple(self.widgets['lora_list'])
         
     def on_launch_click(self, b):
-        # ... (This function remains unchanged)
+        # ... (This logic remains the same)
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
         with self.layouts['main_output_area']:
             clear_output(wait=True)
@@ -312,7 +321,7 @@ class AnxietyUI:
         b.description = "Launch Complete"; b.icon = "check"; b.disabled = False
         
     def save_settings(self):
-        # ... (This function remains unchanged)
+        # ... (This logic remains the same)
         print("--- 1. Saving All UI Settings ---")
         SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
         widget_values = {k: v.value for k, v in self.widgets.items() if hasattr(v, 'value') and not isinstance(v, list)}
