@@ -1,304 +1,387 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v20.0 - Final Review Stage UI)
+# /content/ANXETY/scripts/en/downloading-en.py (Refactored for Backend-Only Operations)
 
-import ipywidgets as widgets
-from IPython.display import display, clear_output, HTML
-from pathlib import Path
-import sys
 import os
-import runpy
+import sys
+from pathlib import Path
 import subprocess
-import json
-import time
-import ast
 import re
-from IPython import get_ipython
+from urllib.parse import urlparse, unquote
+import shlex
+import shutil
 
 # --- Pathing & Imports ---
-ANXETY_ROOT = Path('/content/ANXETY')
+# Ensure ANXETY_ROOT is correctly set for relative imports
+try:
+    ANXETY_ROOT = Path(__file__).resolve().parents[2] # Adjust parent level if this file is now in /scripts/en/
+except NameError:
+    ANXETY_ROOT = Path('/content/ANXETY') # Fallback for direct execution testing
+
 if str(ANXETY_ROOT) not in sys.path: sys.path.insert(0, str(ANXETY_ROOT))
+if str(ANXETY_ROOT / 'modules') not in sys.path: sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
 
-from modules.widget_factory import WidgetFactory
-from modules.webui_utils import update_current_webui
-from modules.CivitaiAPI import CivitAiAPI
 import modules.json_utils as js
+from modules.Manager import m_download
 
-class AnxietyUI:
-    def __init__(self):
-        self.factory = WidgetFactory()
-        self.widgets = {}
-        self.layouts = {}
-        self.buttons = {}
-        self.api = CivitAiAPI(js.read(ANXETY_ROOT / 'settings.json', 'WIDGETS.civitai_token'))
-        self.url_pool = []
-        self.processed_data = []
-        self.review_widgets = {}
-        self.selections = {'model_list': set(), 'vae_list': set(), 'controlnet_list': set(), 'lora_list': set()}
-        self.webui_selection_args = {
-            'A1111': "--xformers --no-half-vae --enable-insecure-extension-access --disable-console-progressbars --theme dark",
-            'ComfyUI': "--use-sage-attention --dont-print-server",
-            'Forge': "--disable-xformers --opt-sdp-attention --cuda-stream --pin-shared-memory --enable-insecure-extension-access --disable-console-progressbars --theme dark",
-            'Classic': "--persistent-patches --cuda-stream --pin-shared-memory --enable-insecure-extension-access --disable-console-progressbars --theme dark",
-            'ReForge': "--xformers --cuda-stream --pin-shared-memory --enable-insecure-extension-access --disable-console-progressbars --theme dark",
-            'SD-UX': "--xformers --no-half-vae --enable-insecure-extension-access --disable-console-progressbars --theme dark"
+# Constants (loaded from settings.json or derived defaults)
+SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
+
+# --- Load settings needed by this script ---
+# We load the entire settings structure here to ensure all necessary paths and flags are available.
+def load_all_settings(path):
+    try:
+        env_settings = js.read(path, 'ENVIRONMENT', {})
+        widget_settings = js.read(path, 'WIDGETS', {})
+        webui_settings = js.read(path, 'WEBUI', {})
+        return {
+            **env_settings,
+            **widget_settings,
+            **webui_settings
         }
-        self.factory.load_css(ANXETY_ROOT / 'CSS' / 'main-widgets.css')
+    except Exception as e:
+        print(f"❌ Error loading settings in downloading-en.py: {e}")
+        return {}
 
-    def create_ui(self):
-        self._create_widgets()
-        self._create_layouts()
-        self._assign_callbacks()
-        self._update_model_lists()
-        self._update_args_from_webui()
-        display(self.layouts['main_container'])
+settings = load_all_settings(SETTINGS_PATH)
+# Make settings available as local variables for convenience
+locals().update(settings)
 
-    def _create_widgets(self):
-        self.widgets['sdxl_toggle'] = self.factory.create_toggle_button(description="SDXL Models", value=False, button_style='info', tooltip='Toggle SDXL Models', icon='rocket')
-        self.widgets['detailed_download'] = self.factory.create_checkbox(description="Detailed download")
-        webui_options = ['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX']
-        self.widgets['change_webui'] = self.factory.create_dropdown('WebUI:', webui_options, 'ReForge')
-        self.widgets['commandline_arguments'] = self.factory.create_text(description="Arguments:")
-        self.widgets['downloader_url_input'] = self.factory.create_text("URL:", placeholder="Paste a single Civitai or Hugging Face URL here")
-        self.buttons['downloader_add_to_pool'] = self.factory.create_button("Add to Pool", icon='plus')
-        self.widgets['downloader_url_pool'] = widgets.SelectMultiple(options=[], rows=8, description='URL Pool:', disabled=False)
-        self.buttons['downloader_review'] = self.factory.create_button("Next: Review & Categorize", icon='arrow-right', button_style='info')
+# Ensure HOME is correctly defined from settings, or fallback
+HOME = Path(settings.get('home_path', '/content'))
+VENV_PATH = HOME / 'venv'
 
-    def _create_layouts(self):
-        self.layouts['main_output_area'] = widgets.VBox()
-        downloader_input_box = self.factory.create_hbox([self.widgets['downloader_url_input'], self.buttons['downloader_add_to_pool']], layout={'width': '100%'})
-        self.widgets['downloader_url_input'].layout.width = '85%'
-        downloader_container = self.factory.create_vbox([
-            self.factory.create_header("Custom File Downloader"), downloader_input_box,
-            self.widgets['downloader_url_pool'], self.buttons['downloader_review'], widgets.HTML("<hr>")
-        ], class_names=['container'])
-        self.layouts['models_box'], self.layouts['vaes_box'], self.layouts['cnets_box'], self.layouts['loras_box'] = widgets.VBox(), widgets.VBox(), widgets.VBox(), widgets.VBox()
-        accordion = widgets.Accordion(children=[self.layouts['models_box'], self.layouts['vaes_box'], self.layouts['cnets_box'], self.layouts['loras_box']])
-        titles = ['Checkpoints', 'VAEs', 'ControlNets', 'LoRAs']
-        for i, title in enumerate(titles): accordion.set_title(i, title)
-        self.buttons['launch'] = self.factory.create_button(description="Install, Download & Launch", class_names=['button', 'button_save'], icon='paper-plane')
-        top_bar = widgets.HBox([self.widgets['change_webui'], self.widgets['sdxl_toggle'], self.widgets['detailed_download']])
-        self.layouts['initial_view'] = widgets.VBox([top_bar, self.widgets['commandline_arguments'], downloader_container, accordion, self.buttons['launch']])
-        self.layouts['main_output_area'].children = [self.layouts['initial_view']]
-        self.layouts['main_container'] = self.layouts['main_output_area']
+# This should be dynamically read from settings if possible, or defined
+# based on the selected UI in settings.json to ensure correct WEBUI path.
+# For simplicity, let's derive it based on the 'current' UI from settings.
+UI_NAME = settings.get('current', 'Forge')
+WEBUI_PATH = Path(settings.get('webui_path', str(HOME / UI_NAME))) # Use path from settings or derive
 
-    def _assign_callbacks(self):
-        self.widgets['sdxl_toggle'].observe(self._on_sdxl_toggled, names='value')
-        self.widgets['change_webui'].observe(self._on_webui_changed, names='value')
-        self.buttons['launch'].on_click(self.on_launch_click)
-        self.buttons['downloader_add_to_pool'].on_click(self._on_add_to_pool_clicked)
-        self.buttons['downloader_review'].on_click(self._on_downloader_review_clicked)
+# Dictionary of WebUI zip URLs
+UI_ZIPS = {
+    "A1111": "https://huggingface.co/NagisaNao/ANXETY/resolve/main/A1111.zip",
+    "Forge": "https://huggingface.co/NagisaNao/ANXETY/resolve/main/Forge.zip",
+    "ReForge": "https://huggingface.co/NagisaNao/ANXETY/resolve/main/ReForge.zip",
+    "Classic": "https://huggingface.co/NagisaNao/ANXETY/resolve/main/Classic.zip",
+    "ComfyUI": "https://huggingface.co/NagisaNao/ANXETY/resolve/main/ComfyUI.zip",
+    "SD-UX": "https://huggingface.co/NagisaNao/ANXETY/resolve/main/SD-UX.zip"
+}
 
-    def _on_webui_changed(self, change): self._update_args_from_webui()
-    def _update_args_from_webui(self):
-        selected_ui = self.widgets['change_webui'].value
-        self.widgets['commandline_arguments'].value = self.webui_selection_args.get(selected_ui, "")
+# --- System Dependency Management ---
+def install_system_deps():
+    """Checks for and installs essential system packages."""
+    deps_check = {
+        'aria2c': 'aria2',
+        'lz4': 'lz4',
+        'pv': 'pv',
+        'ngrok': 'ngrok',
+        'cloudflared': 'cloudflared'
+    }
+    
+    missing_deps_names = []
+    for cmd, pkg_name in deps_check.items():
+        if not shutil.which(cmd):
+            missing_deps_names.append(pkg_name)
 
-    def _on_add_to_pool_clicked(self, b):
-        url = self.widgets['downloader_url_input'].value.strip()
-        if url and url not in self.url_pool: self.url_pool.append(url); self.widgets['downloader_url_pool'].options = self.url_pool
-        self.widgets['downloader_url_input'].value = ""
+    if not missing_deps_names:
+        print("✅ All system dependencies are already installed.")
+        return True
+    
+    print(f"🔧 Missing system dependencies: {', '.join(missing_deps_names)}. Attempting to install...")
+    
+    # Use subprocess.run for better control and error handling
+    # For npm based tools, ensure npm is installed first
+    try:
+        # Update and install apt packages
+        subprocess.run(["apt-get", "-y", "update", "-qq"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["apt-get", "-y", "install", "aria2", "lz4", "pv"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def _on_downloader_review_clicked(self, b):
-        if not self.url_pool: print("⚠️ URL Pool is empty."); return
-        b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
-        self._build_and_display_review_stage()
-        b.description = "Next: Review & Categorize"; b.icon = "arrow-right"; b.disabled = False
+        # Install cloudflared
+        if not shutil.which('cloudflared'):
+            subprocess.run(shlex.split("wget -qO /usr/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"), check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["chmod", "+x", "/usr/bin/cloudflared"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Install ngrok
+        if not shutil.which('ngrok'):
+            subprocess.run(shlex.split("wget -qO ngrok.tgz https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz"), check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(shlex.split("tar -xzf ngrok.tgz -C /usr/bin"), check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            Path('ngrok.tgz').unlink(missing_ok=True) # Clean up downloaded tgz
+
+        print("✅ System dependency installation complete.")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Error installing system dependencies: {e.stderr.decode() if e.stderr else str(e)}", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"❌ An unexpected error occurred during system dependency installation: {e}", file=sys.stderr)
+        return False
+
+def check_and_install_venv():
+    """Manages virtual environment setup and reinstallation if needed."""
+    current_ui = settings.get('current', 'Forge')
+    is_classic_ui = (current_ui == 'Classic')
+
+    # Determine required VENV type based on the selected UI (Classic needs Python 3.11)
+    required_venv_type = 'Classic' if is_classic_ui else 'Standard'
+    installed_venv_type = settings.get('venv_type')
+
+    # Check if VENV exists and if it's the correct type
+    if not VENV_PATH.exists() or installed_venv_type != required_venv_type:
+        if VENV_PATH.exists():
+            print("🗑️ VENV type has changed or VENV is corrupted. Removing old VENV...")
+            shutil.rmtree(VENV_PATH)
+            clear_output(wait=True) # Clear output after deletion message
+
+        # Select appropriate VENV URL based on required type
+        if required_venv_type == 'Classic':
+            venv_url = "https://huggingface.co/NagisaNao/ANXETY/resolve/main/python31112-venv-torch251-cu121-C-Classic.tar.lz4"
+            py_version_display = '(3.11.12)'
+        else: # Standard VENV
+            venv_url = "https://huggingface.co/NagisaNao/ANXETY/resolve/main/python31017-venv-torch251-cu121-C-fca.tar.lz4"
+            py_version_display = '(3.10.17)'
+
+        print(f"♻️ Installing VENV {py_version_display}. This will take some time...")
         
-    def _build_and_display_review_stage(self):
-        self.processed_data = []
-        for url in self.url_pool:
-            data = self.api.get_model(url) if "civitai.com" in url else self._get_huggingface_guesses(url)
-            if data: self.processed_data.append(data)
+        filename = Path(urlparse(venv_url).path).name
+        venv_archive_path = HOME / filename
+
+        m_download(f'"{venv_url}" "{HOME}" "{filename}"', log=True)
         
-        type_order = {'Checkpoint': 0, 'LORA': 1, 'VAE': 2}
-        self.processed_data.sort(key=lambda x: (type_order.get(x.type if hasattr(x, 'type') else x.get('type', 99), 99), x.name if hasattr(x, 'name') else x.get('name', '')))
+        if not venv_archive_path.exists():
+            print(f"❌ VENV DOWNLOAD FAILED for {filename}. Cannot proceed.", file=sys.stderr)
+            sys.exit(1)
 
-        css = """<style> .review-row { border-radius: 5px; padding: 10px; margin-bottom: 5px; border-left: 5px solid; } .review-row-model { border-left-color: #7289DA; background-color: rgba(114, 137, 218, 0.1); } .review-row-lora { border-left-color: #43B581; background-color: rgba(67, 181, 129, 0.1); } .review-row-hf { border-left-color: #FAA61A; background-color: rgba(250, 166, 26, 0.1); } </style>"""
-        display(HTML(css))
+        print("📦 Unpacking VENV...")
+        try:
+            # Use subprocess.run for unpacking, as ipySys might be problematic in some contexts
+            unpack_command = f"pv {shlex.quote(str(venv_archive_path))} | lz4 -d | tar xf -"
+            subprocess.run(unpack_command, shell=True, check=True, cwd=HOME, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            venv_archive_path.unlink() # Clean up the archive
+            js.save(str(SETTINGS_PATH), 'ENVIRONMENT.venv_type', required_venv_type) # Save the new VENV type
+            print("✅ VENV setup complete.")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ VENV UNPACKING FAILED: {e.stderr.decode() if e.stderr else str(e)}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"❌ An unexpected error occurred during VENV unpacking: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print("✨ Correct VENV already exists. Skipping VENV installation.")
 
-        review_rows = []
-        self.review_widgets = {}
-        for i, item in enumerate(self.processed_data):
-            is_hf = isinstance(item, dict)
-            name = item.get('name') if is_hf else item.name
-            source = item.get('source', 'Civitai') if is_hf else 'Civitai'
-            
-            name_label = self.factory.create_html(f"<b>{name}</b> ({source})")
-            
-            type_val = item.get('type') if is_hf else item.type
-            type_dropdown = self.factory.create_dropdown(options=['Checkpoint', 'LORA', 'VAE'], value=type_val, description="Asset Type:", disabled=not is_hf)
-            
-            base_model_val = item.get('baseModel') if is_hf else item.model_versions[0].base_model
-            base_model_dropdown = self.factory.create_dropdown(options=['SD 1.5', 'SDXL 1.0', 'Pony', 'Unknown'], value=base_model_val, description="Base Model:", disabled=not is_hf)
+# --- WebUI Installation ---
+def install_webui():
+    """Installs the selected WebUI if not already present."""
+    global WEBUI_PATH # Use global to update in this scope
+    UI_NAME = settings.get('current', 'Forge') # Get current UI from loaded settings
+    WEBUI_PATH = Path(settings.get('webui_path', str(HOME / UI_NAME))) # Ensure WEBUI_PATH is consistent
 
-            row_widgets = [name_label, type_dropdown, base_model_dropdown]
-            if not is_hf:
-                versions_map = {v.name: v for v in item.model_versions}
-                version_dropdown = self.factory.create_dropdown(options=list(versions_map.keys()), description="Model Version:")
+    if not WEBUI_PATH.exists():
+        print(f"📦 Unpacking Stable Diffusion | WEBUI: {UI_NAME}...")
+        repo_url = UI_ZIPS.get(UI_NAME)
+
+        if not repo_url:
+            print(f"❌ No download URL defined for UI: {UI_NAME}. Cannot proceed.", file=sys.stderr)
+            sys.exit(1)
+
+        zip_path = HOME / f"{UI_NAME}.zip"
+        
+        m_download(f'"{repo_url}" "{HOME}" "{zip_path.name}"', log=True)
+        
+        if not zip_path.exists():
+            print(f"❌ DOWNLOAD FAILED for {UI_NAME}.zip. Cannot proceed.", file=sys.stderr)
+            sys.exit(1)
+        
+        print(f"🚚 Unzipping {UI_NAME} to {WEBUI_PATH}...")
+        try:
+            WEBUI_PATH.mkdir(parents=True, exist_ok=True) # Ensure target directory exists
+            subprocess.run(['unzip', '-q', '-o', str(zip_path), '-d', str(WEBUI_PATH)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            zip_path.unlink() # Clean up zip file
+            print(f"✅ {UI_NAME} installation complete!")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ UNZIP FAILED for {UI_NAME}:\n{e.stderr.decode() if e.stderr else str(e)}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"❌ An unexpected error occurred during WebUI unpacking: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print(f"✨ WebUI directory found for {UI_NAME}. Skipping installation.")
+
+# --- Asset Downloading Logic ---
+def read_data_file(file_path, data_key):
+    """Reads data from a Python data file (e.g., _models-data.py)."""
+    local_vars = {}
+    if file_path.exists():
+        try:
+            with open(file_path, 'r', encoding="utf-8") as f:
+                exec(f.read(), {}, local_vars)
+        except Exception as e:
+            print(f"❌ Error reading data file {file_path}: {e}", file=sys.stderr)
+            return {}
+    return local_vars.get(data_key, {})
+
+def process_selections(selections, data_dict, prefix):
+    """Generates download commands based on user selections and data dictionaries."""
+    commands = []
+    if not isinstance(selections, (list, tuple)): return commands
+
+    # Adjust prefix map based on your Manager.py's PREFIX_MAP structure
+    # For now, we'll assume it's just the prefix needed.
+    
+    for selection in selections:
+        if selection == 'none' or not selection: continue
+        
+        model_name = selection # Assuming 'selection' is already the full model name as stored in data_dict keys
+        
+        if model_name in data_dict:
+            model_data_value = data_dict[model_name]
+            # Handle cases where data_dict value might be a list (e.g., for ControlNet) or a single dict
+            model_info_list = model_data_value if isinstance(model_data_value, list) else [model_data_value]
+            
+            for model_info in model_info_list:
+                if isinstance(model_info, dict) and 'url' in model_info:
+                    # Construct filename carefully. prioritize 'name' field if present, otherwise parse from URL
+                    file_name = model_info.get('name') or unquote(Path(urlparse(model_info['url']).path).name)
+                    commands.append(f"{prefix}:{model_info['url']}[{file_name}]")
+    return commands
+
+def process_asset_downloads():
+    """Orchestrates the downloading of user-selected models and assets."""
+    print("\n--- Processing Asset Download Selections ---")
+
+    # Access widget settings directly from the loaded `settings` dictionary
+    is_xl = settings.get("sdxl_toggle", False) # Ensure 'sdxl_toggle' is saved in settings.json
+
+    models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
+    loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
+    
+    # Load model data
+    model_data = read_data_file(models_py_path, 'sdxl_models_data' if is_xl else 'sd15_model_data')
+    vae_data = read_data_file(models_py_path, 'sdxl_vae_data' if is_xl else 'sd15_vae_data')
+    # For loras, get the nested dictionary based on SDXL/SD1.5
+    lora_data_root = read_data_file(loras_py_path, 'lora_data')
+    lora_data = lora_data_root.get('sdxl_loras' if is_xl else 'sd15_loras', {})
+    controlnet_data = read_data_file(models_py_path, 'controlnet_list')
+
+    all_download_commands = []
+    
+    # Process each type of selection
+    all_download_commands.extend(process_selections(settings.get('model_list', []), model_data, 'model'))
+    all_download_commands.extend(process_selections(settings.get('vae_list', []), vae_data, 'vae'))
+    all_download_commands.extend(process_selections(settings.get('lora_list', []), lora_data, 'lora'))
+    all_download_commands.extend(process_selections(settings.get('controlnet_list', []), controlnet_data, 'control'))
+
+    # If 'empowerment' is on, process empowerment_output (direct URLs)
+    if settings.get('empowerment', False) and settings.get('empowerment_output'):
+        # This part requires a more direct parsing of empowerment_output as it's raw text
+        # For simplicity, assuming a simple comma-separated list of URLs without prefixes for now.
+        # This would need a more robust parser if empowerment_output can contain tags/prefixes.
+        raw_urls = settings.get('empowerment_output').split(',')
+        for url in raw_urls:
+            url = url.strip()
+            if url.startswith('http'):
+                # Assuming basic file type guessing for raw URLs. This is simplified.
+                guessed_type = "model" # Default guess
+                if "lora" in url.lower(): guessed_type = "lora"
+                elif "vae" in url.lower(): guessed_type = "vae"
+                # Need to determine dst_dir dynamically or have a default
+                # This requires access to webui_utils._set_webui_paths results.
+                # For now, let's assume a generic download to model_dir if type is not recognized by a prefix.
+                guessed_filename = unquote(Path(urlparse(url).path).name)
+                all_download_commands.append(f"{guessed_type}:{url}[{guessed_filename}]")
+
+    # If manual URLs were provided (Model_url, Vae_url, etc.)
+    manual_url_fields = {
+        'Model_url': 'model',
+        'Vae_url': 'vae',
+        'LoRA_url': 'lora',
+        'Embedding_url': 'embed',
+        'Extensions_url': 'extension',
+        'ADetailer_url': 'adetailer',
+        'custom_file_urls': 'file' # This one is special, might be a list of file paths/HTTP links to txt files
+    }
+    
+    for field_name, prefix in manual_url_fields.items():
+        if settings.get(field_name):
+            # For simplicity, treat them as direct URLs with a guessed filename
+            urls = settings.get(field_name).split(',')
+            for url in urls:
+                url = url.strip()
+                if url.startswith('http'):
+                    filename_match = re.search(r'\[(.*?)\]', url)
+                    manual_filename = filename_match.group(1) if filename_match else unquote(Path(urlparse(url).path).name)
+                    clean_url_for_dl = re.sub(r'\[.*?\]', '', url).strip() # Remove filename tag from URL for download
+                    all_download_commands.append(f"{prefix}:{clean_url_for_dl}[{manual_filename}]")
+                elif prefix == 'file': # Handle local file paths for custom_file_urls
+                    # This would require reading the content of these local files
+                    # and parsing them. This is complex and out of scope for a quick fix.
+                    print(f"⚠️ Local file parsing for '{url}' not fully implemented here for {field_name}. Skipping.", file=sys.stderr)
+                    pass
+
+
+    if not all_download_commands:
+        print("ℹ️ No assets were selected for download.")
+    else:
+        print(f"📦 Orchestrating downloads for {len(all_download_commands)} assets...")
+        
+        # Define the base directories for downloads, similar to webui_utils.py's path_config
+        # These keys should match the 'prefix' used in process_selections
+        path_map = {
+            'model': settings.get('model_dir'),
+            'vae': settings.get('vae_dir'),
+            'lora': settings.get('lora_dir'),
+            'embed': settings.get('embed_dir'),
+            'extension': settings.get('extension_dir'),
+            'adetailer': settings.get('adetailer_dir'),
+            'control': settings.get('control_dir'),
+            'upscale': settings.get('upscale_dir'),
+            'clip': settings.get('clip_dir'),
+            'unet': settings.get('unet_dir'),
+            'vision': settings.get('vision_dir'),
+            'encoder': settings.get('encoder_dir'),
+            'diffusion': settings.get('diffusion_dir'),
+            'config': settings.get('config_dir') # Usually configs are downloaded by UI scripts, not generic assets
+        }
+
+        # Detailed download mode should be read from settings.json
+        detailed_download_on = settings.get('detailed_download') == 'on'
+
+        for command_line in all_download_commands:
+            try:
+                # Expected format: "prefix:url[filename]"
+                parts = command_line.split(':', 1)
+                prefix = parts[0]
+                url_and_filename = parts[1] # e.g., "https://example.com/model.safetensors[model.safetensors]"
+
+                # Extract filename tag if present
+                filename_match = re.search(r'\[(.*?)\]', url_and_filename)
+                download_filename = filename_match.group(1) if filename_match else None
                 
-                def _update_file_options(change, item_index=i):
-                    selected_version_obj = versions_map[change['new']]
-                    file_opts = {f.name: f.download_url for f in selected_version_obj.files}
-                    self.review_widgets[item_index]['file_selection'].options = list(file_opts.keys())
-                    self.review_widgets[item_index]['file_url_map'] = file_opts
-                version_dropdown.observe(_update_file_options, names='value')
+                # Extract URL, stripping the filename tag if present
+                download_url = re.sub(r'\[.*?\]', '', url_and_filename).strip()
+
+                dst_dir = path_map.get(prefix)
+
+                if not dst_dir:
+                    print(f"⚠️ Skipping download for {download_url}: No destination directory defined for prefix '{prefix}'.", file=sys.stderr)
+                    continue
+
+                if detailed_download_on:
+                    print(f"⬇️ Queuing: {download_filename or download_url.split('/')[-1]} to {Path(dst_dir).name} (Type: {prefix})")
                 
-                initial_files = {f.name: f.download_url for f in item.model_versions[0].files}
-                file_dropdown = self.factory.create_dropdown(options=list(initial_files.keys()), description="File:")
-                row_widgets.append(version_dropdown)
-            else:
-                initial_files = {f['name']: f['downloadUrl'] for f in item.get('files', [])}
-                file_dropdown = self.factory.create_dropdown(options=list(initial_files.keys()), description="File:", disabled=True)
-            
-            row_widgets.append(file_dropdown)
-            self.review_widgets[i] = {"name": name, "type": type_dropdown, "base_model": base_model_dropdown, "file_url_map": initial_files, "file_selection": file_dropdown}
-            
-            row_layout = widgets.Layout(padding='10px', margin='5px 0 0 0', border_radius='5px')
-            if is_hf: row_layout.border = '3px solid #FAA61A'; row_layout.background = 'rgba(250, 166, 26, 0.1)'
-            elif type_val == 'Checkpoint': row_layout.border = '3px solid #7289DA'; row_layout.background = 'rgba(114, 137, 218, 0.1)'
-            elif type_val == 'LORA': row_layout.border = '3px solid #43B581'; row_layout.background = 'rgba(67, 181, 129, 0.1)'
-            
-            row = widgets.VBox(row_widgets, layout=row_layout)
-            review_rows.append(row)
+                # m_download expects url, dst_dir, filename
+                m_download(f'"{download_url}" "{dst_dir}" "{download_filename or ""}"', log=detailed_download_on)
+
+            except Exception as e:
+                print(f"❌ Failed to process download command '{command_line}': {e}", file=sys.stderr)
         
-        confirm_button = self.factory.create_button("Confirm & Add to Library", icon='check', class_names=['button_save'])
-        confirm_button.on_click(self._on_confirm_and_write_clicked)
-        review_stage_layout = widgets.VBox([self.factory.create_header("Downloader - Stage 2: Review & Confirm"), *review_rows, confirm_button])
-        self.layouts['main_output_area'].children = [review_stage_layout]
+        print("🏁 Download processing complete!")
 
-    def _on_confirm_and_write_clicked(self, b):
-        b.description = "Writing..."; b.icon = "spinner"; b.disabled = True
-        output_log = widgets.Output()
-        display(output_log)
-        with output_log:
-            print("--- Writing Selections to Data Scripts ---")
-            for i, item_widgets in self.review_widgets.items():
-                selected_file_name = item_widgets['file_selection'].value
-                final_data = {'model': {'type': item_widgets['type'].value, 'name': item_widgets['name']}, 'name': 'v1.0',
-                              'baseModel': item_widgets['base_model'].value,
-                              'files': [{'name': selected_file_name, 'downloadUrl': item_widgets['file_url_map'][selected_file_name]}]}
-                self._categorize_and_write(final_data)
-        print("✅ All items processed. Returning to main menu..."); time.sleep(2)
-        self.url_pool = []; self.widgets['downloader_url_pool'].options = []
-        self._update_model_lists()
-        self.layouts['main_output_area'].children = [self.layouts['initial_view']]
-
-    def _get_huggingface_guesses(self, url):
-        filename = url.split('/')[-1].split('?')[0]
-        file_type = "Checkpoint"; base_model = "Unknown"
-        if "lora" in filename.lower(): file_type = "LORA"
-        if "sdxl" in filename.lower() or "xl" in url.lower(): base_model = "SDXL 1.0"
-        elif "1.5" in filename.lower() or "1-5" in url.lower(): base_model = "SD 1.5"
-        return {'source': 'HuggingFace', 'name': filename.rsplit('.', 1)[0], 'type': file_type, 'baseModel': base_model, 'files': [{'name': filename, 'downloadUrl': url.replace("/blob/", "/resolve/")}]}
-
-    def _categorize_and_write(self, data):
-        asset_type = data.get('model', {}).get('type', 'Unknown')
-        base_model = data.get('baseModel', 'Unknown')
-        target_file, target_dict = None, None
-        is_sdxl_type = 'SDXL' in base_model or 'Pony' in base_model
-        if asset_type == 'LORA':
-            target_file = ANXETY_ROOT / 'scripts' / '_loras-data.py'
-            target_dict = 'sdxl_loras' if is_sdxl_type else 'sd15_loras'
-        elif asset_type == 'Checkpoint':
-            target_file = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_sdxl_type else '_models-data.py')
-            target_dict = 'sdxl_models_data' if is_sdxl_type else 'sd15_model_data'
-        if not target_file or not target_dict: print(f"⚠️ Could not categorize model '{data.get('model', {}).get('name')}'. Skipping."); return
-        display_name = f"{data.get('model', {}).get('name', 'Unknown')} - {data.get('name', 'v1.0')}"
-        file_info = data.get('files', [{}])[0]
-        download_url = file_info.get('downloadUrl', '').split('?')[0]
-        file_name = file_info.get('name', 'unknown.safetensors')
-        new_entry = {'display_name': display_name, 'url': download_url, 'filename': file_name}
-        self._update_data_file_with_ast(target_file, target_dict, new_entry)
-        
-    def _update_data_file_with_ast(self, file_path, dict_name, new_entry):
-        if not file_path.exists(): print(f"❌ Error: Data file not found at {file_path}"); return
-        with open(file_path, 'r', encoding='utf-8') as f: source_code = f.read()
-        tree = ast.parse(source_code)
-        found_and_modified = False
-        if file_path.name == '_loras-data.py':
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Assign) and hasattr(node.targets[0], 'id') and node.targets[0].id == 'lora_data':
-                    for i, key in enumerate(node.value.keys):
-                        if isinstance(key, ast.Constant) and key.value == dict_name:
-                            dict_node = node.value.values[i]
-                            if isinstance(dict_node, ast.Dict):
-                                if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
-                                    print(f"ℹ️ LoRA '{new_entry['display_name']}' already exists. Skipping."); found_and_modified = True; break
-                                key_node = ast.Constant(value=new_entry['display_name'])
-                                value_node = ast.List(elts=[ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])])
-                                dict_node.keys.append(key_node); dict_node.values.append(value_node); found_and_modified = True; break
-                    if found_and_modified: break
-        else:
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name) and target.id == dict_name:
-                            dict_node = node.value
-                            if isinstance(dict_node, ast.Dict):
-                                if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
-                                    print(f"ℹ️ Model '{new_entry['display_name']}' already exists. Skipping."); return
-                                key_node = ast.Constant(value=new_entry['display_name'])
-                                value_node = ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])
-                                dict_node.keys.append(key_node); dict_node.values.append(value_node); found_and_modified = True; break
-                if found_and_modified: break
-        if not found_and_modified: print(f"❌ Error: Could not find or modify dictionary '{dict_name}' in {file_path}"); return
-        new_source_code = ast.unparse(tree)
-        with open(file_path, 'w', encoding='utf-8') as f: f.write(new_source_code)
-        print(f"✅ Successfully added '{new_entry['display_name']}' to {dict_name}.")
-            
-    def _on_sdxl_toggled(self, change): self._update_model_lists()
-    def _update_model_lists(self):
-        self._save_current_selections()
-        is_xl = self.widgets['sdxl_toggle'].value
-        models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
-        loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
-        if not models_py_path.exists(): return
-        models_data = runpy.run_path(str(models_py_path))
-        loras_data = runpy.run_path(str(loras_py_path))
-        data_map = {'model_list': models_data.get('sdxl_models_data' if is_xl else 'sd15_model_data', {}),
-                    'vae_list': models_data.get('sdxl_vae_data' if is_xl else 'sd15_vae_data', {}),
-                    'controlnet_list': models_data.get('controlnet_list', {}),
-                    'lora_list': loras_data.get('lora_data', {}).get('sdxl_loras' if is_xl else 'sd15_loras', {})}
-        layout_map = {'model_list': self.layouts['models_box'], 'vae_list': self.layouts['vaes_box'],
-                      'controlnet_list': self.layouts['cnets_box'], 'lora_list': self.layouts['loras_box']}
-        for key, data_dict in data_map.items():
-            selection_set = self.selections.get(key, set())
-            new_checkboxes = [self.factory.create_checkbox(description=name, value=(name in selection_set)) for name in data_dict.keys()]
-            self.widgets[key] = new_checkboxes
-            layout_map[key].children = tuple(new_checkboxes)
-
-    def _save_current_selections(self):
-        for key in self.selections.keys():
-            if key in self.widgets and isinstance(self.widgets[key], list):
-                for checkbox in self.widgets[key]:
-                    if checkbox.value: self.selections[key].add(checkbox.description)
-                    else: self.selections[key].discard(checkbox.description)
-        
-    def on_launch_click(self, b):
-        b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
-        with self.layouts['main_output_area']:
-            clear_output(wait=True)
-            self.save_settings()
-            print("\n--- 2. Running Environment Setup (VENV & Assets) ---")
-            get_ipython().run_line_magic('run', str(ANXETY_ROOT / 'scripts' / 'en' / 'downloading-en.py'))
-            print("\n--- 3. Launching WebUI ---")
-            get_ipython().run_line_magic('run', str(ANXETY_ROOT / 'scripts' / 'launch.py'))
-        b.description = "Launch Complete"; b.icon = "check"; b.disabled = False
-        
-    def save_settings(self):
-        self._save_current_selections()
-        print("--- 1. Saving All UI Settings ---")
-        SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
-        widget_values = {key: list(value) for key, value in self.selections.items()}
-        widget_values.update({
-            'detailed_download': self.widgets['detailed_download'].value,
-            'change_webui': self.widgets['change_webui'].value,
-            'commandline_arguments': self.widgets['commandline_arguments'].value
-        })
-        js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
-        js.save(str(SETTINGS_PATH), 'ENVIRONMENT.home_path', '/content')
-        update_current_webui(widget_values['change_webui'])
-        print("✅ Configuration saved to settings.json")
-
-if __name__ == "__main__":
-    ui = AnxietyUI()
-    ui.create_ui()
+# --- Main Execution for downloading-en.py ---
+# This block is what gets executed when this script is run via %run from widgets_en.py.
+if __name__ == '__main__':
+    print("--- Starting Environment Setup & Asset Download ---")
+    if not install_system_deps():
+        sys.exit(1) # Exit if system dependencies fail
+    
+    check_and_install_venv()
+    install_webui()
+    process_asset_downloads()
+    print("\n--- Environment Setup & Asset Download Complete ---")
