@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v17.1 - Restored Missing Callbacks)
+# /content/ANXETY/scripts/en/widgets_en.py (v17.2 - Asyncio Fix)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -95,16 +95,12 @@ class AnxietyUI:
         self.buttons['downloader_add_to_pool'].on_click(self._on_add_to_pool_clicked)
         self.buttons['downloader_analyze'].on_click(self._on_downloader_analyze_clicked)
         
-    # --- START OF RESTORED METHODS ---
     def _on_webui_changed(self, change):
-        """Callback to update arguments when the WebUI dropdown changes."""
         self._update_args_from_webui()
 
     def _update_args_from_webui(self):
-        """Updates the commandline arguments text box based on the selected WebUI."""
         selected_ui = self.widgets['change_webui'].value
         self.widgets['commandline_arguments'].value = self.webui_selection_args.get(selected_ui, "")
-    # --- END OF RESTORED METHODS ---
 
     def _on_add_to_pool_clicked(self, b):
         url = self.widgets['downloader_url_input'].value.strip()
@@ -113,21 +109,41 @@ class AnxietyUI:
             self.widgets['downloader_url_pool'].options = self.url_pool
             self.widgets['downloader_url_input'].value = ""
 
+    # --- START OF ASYNCIO FIX ---
     def _on_downloader_analyze_clicked(self, b):
         if not self.url_pool:
             with self.layouts['output_layout']:
                 clear_output(wait=True); print("⚠️ URL Pool is empty. Please add at least one URL.")
             return
+
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
         with self.layouts['output_layout']:
             clear_output(wait=True); print("Analyzing URLs...")
-        asyncio.run(self._process_urls(self.url_pool))
+        
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+        loop.create_task(self._process_urls_and_update_ui())
+
+    async def _process_urls_and_update_ui(self):
+        """Helper to run async processing and then update UI widgets."""
+        await self._process_urls(self.url_pool)
+        
         self.url_pool = []
         self.widgets['downloader_url_pool'].options = self.url_pool
-        b.description = "Analyze & Add to Library"; b.icon = "cogs"; b.disabled = False
+        
+        self.buttons['downloader_analyze'].description = "Analyze & Add to Library"
+        self.buttons['downloader_analyze'].icon = "cogs"
+        self.buttons['downloader_analyze'].disabled = False
+        
         with self.layouts['output_layout']:
-            clear_output(wait=True); print("✅ Analysis and file writing complete! Refreshing model lists...")
+            clear_output(wait=True)
+            print("✅ Analysis and file writing complete! Refreshing model lists...")
         self._update_model_lists()
+    # --- END OF ASYNCIO FIX ---
 
     async def _process_urls(self, urls):
         for url in urls:
