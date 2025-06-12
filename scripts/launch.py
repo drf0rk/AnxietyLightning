@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (v5 - Tunnel Debugging Enabled)
+# /content/ANXETY/scripts/launch.py (v6 - Correct Tunnel Command)
 
 import os
 import sys
@@ -91,13 +91,13 @@ if __name__ == '__main__':
     
     # --- Setup and Run Tunnels ---
     tunnel_port = 8188 if UI == 'ComfyUI' else 7860
-    
-    # THIS IS THE CHANGE: Set debug=True
     tunneling_service = Tunnel(tunnel_port, debug=True)
     
-    # This command for Gradio is now handled by the TunnelHub module's internal logic
+    # --- THIS IS THE FIX ---
+    # Correctly call the custom gradio-tunneling.py script
+    gradio_script_path = ANXETY_ROOT / '__configs__'/ 'gradio-tunneling.py'
     tunneling_service.add_tunnel(
-        command=f"python3 -m gradio.tunneling {tunnel_port}",
+        command=f"python3 {gradio_script_path} {tunnel_port}",
         pattern=re.compile(r'https://[\w-]+\.gradio\.live'),
         name='Gradio'
     )
@@ -109,6 +109,7 @@ if __name__ == '__main__':
             name='Ngrok'
         )
     
+    # Launch tunnels non-blockingly
     tunneling_service.__enter__()
 
     # --- Launch WebUI Immediately ---
