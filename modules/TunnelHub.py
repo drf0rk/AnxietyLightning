@@ -1,4 +1,4 @@
-# /content/ANXETY/modules/TunnelHub.py (v4 - Import Fix)
+# /content/ANXETY/modules/TunnelHub.py (v5 - Final Fix)
 
 from typing import Callable, List, Optional, Tuple, TypedDict, Union
 from threading import Event, Lock, Thread
@@ -10,7 +10,7 @@ import shlex
 import time
 import re
 import os
-import shutil # <-- THIS IS THE FIX
+import shutil
 
 StrOrPath = Union[str, Path]
 StrOrRegexPattern = Union[str, re.Pattern]
@@ -19,7 +19,7 @@ ListHandlersOrBool = Union[List[logging.Handler], bool]
 class ColoredFormatter(logging.Formatter):
     COLORS = {'DEBUG': '\033[36m', 'INFO': '\033[32m', 'WARNING': '\033[33m', 'ERROR': '\033[31m', 'CRITICAL': '\033[31;1m'}
     def format(self, record):
-        color = self.COLORS.get(record.levelno, '\033[0m')
+        color = self.COLORS.get(logging.getLevelName(record.levelno), '\033[0m')
         message = super().format(record)
         return f"\n{color}[{record.name}]:\033[0m {message}"
 
@@ -70,11 +70,10 @@ class Tunnel:
         for handler in self.log_handlers: logger.addHandler(handler)
         return logger
 
-    def is_command_available(self, command: str) -> bool:
-        return shutil.which(command) is not None
+    def is_command_available(self, command: str) -> bool: return shutil.which(command) is not None
 
     def add_tunnel(self, *, command: str, pattern: StrOrRegexPattern, name: str, note: str = None, callback: Callable[[str, Optional[str], Optional[str]], None] = None) -> None:
-        cmd_name = command.split()[0]
+        cmd_name = shlex.split(command)[0]
         if not self.is_command_available(cmd_name): self.logger.warning(f"Command '{cmd_name}' not found. Skipping tunnel '{name}'."); return
         if isinstance(pattern, str): pattern = re.compile(pattern)
         self.logger.debug(f"Adding tunnel {command=} {pattern=} {name=} {note=} {callback=}")
@@ -92,29 +91,25 @@ class Tunnel:
         try:
             cmd = tunnel['command'].format(port=self.port); name = tunnel.get('name')
             tunnel_thread = Thread(target=self._run, args=(cmd, name)); tunnel_thread.start(); self.jobs.append(tunnel_thread)
-        except Exception as e: self.logger.error(f"Failed to start tunnel {tunnel.get('name')}: {e}")
+        except Exception as e: self.logger.error(f"Failed to start tunnel {tunnel.get('name')}: {str(e)}")
 
     def _run(self, cmd: str, name: str) -> None:
         log = self.logger.getChild(name)
         log.debug(f"Process starting with command: {cmd}")
-        print(f"[TUNNEL_HUB_DEBUG] Starting process for '{name}'...")
         try:
             self.wait_for_port_if_needed()
-            process = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
+            process = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
             self.processes.append(process)
-            def stream_reader(stream, stream_type):
-                for line in iter(stream.readline, ''):
-                    if self.stop_event.is_set(): break
-                    print(f"[{name}:{stream_type}] {line.strip()}")
-                    self._process_line(line)
-            stdout_thread = Thread(target=stream_reader, args=(process.stdout, 'stdout')); stderr_thread = Thread(target=stream_reader, args=(process.stderr, 'stderr'))
-            stdout_thread.start(); stderr_thread.start()
-            process.wait(); stdout_thread.join(timeout=2); stderr_thread.join(timeout=2)
-            print(f"[TUNNEL_HUB_DEBUG] Process '{name}' finished with exit code: {process.returncode}")
+            for line in iter(process.stdout.readline, ''):
+                if self.stop_event.is_set(): break
+                log.debug(line.strip())
+                self._process_line(line)
+            process.stdout.close()
+            return_code = process.wait()
+            log.debug(f"Process finished with exit code {return_code}")
         except Exception as e:
             log.error(f"Error in tunnel process: {str(e)}", exc_info=self.debug)
-            print(f"[TUNNEL_HUB_DEBUG] Exception in tunnel '{name}': {e}")
-            
+
     def _print(self) -> None:
         if self.check_local_port: self.wait_for_port_if_needed()
         if not self.wait_for_condition(lambda: len(self.urls) >= 1 or self.stop_event.is_set(), timeout=self.timeout):
@@ -124,6 +119,7 @@ class Tunnel:
 
     def display_urls(self) -> None:
         with self.urls_lock:
+            if not self.urls: return
             print('\n\033[32m+' + '='*98 + '+\033[0m\n')
             for url, note, name in self.urls:
                 print(f"\033[32m 🔗 Tunnel \033[0m{name:<10}  \033[32mURL: \033[0m{url} {note or ''}")
@@ -131,7 +127,47 @@ class Tunnel:
             if self.callback: self.invoke_callback(self.callback, self.urls)
             self.printed.set()
 
-    # --- Other methods (stop, reset, etc.) are omitted for brevity but are unchanged ---
+    # --- THIS IS THE CORRECTED FUNCTION ---
+    @staticmethod
+    def wait_for_condition(condition: Callable[[], bool], *, interval: int = 1, timeout: int = 10) -> bool:
+        start_time = time.time()
+        while True:
+            if condition(): return True
+            if timeout is not None and time.time() - start_time >= timeout: return False
+            time.sleep(interval)
+            
+    def wait_for_port_if_needed(self) -> None:
+        if self.check_local_port:
+            print(f"DEBUG: Waiting for port {self.port} to be in use...")
+            if self.wait_for_condition(lambda: self.is_port_in_use(self.port) or self.stop_event.is_set(), timeout=120):
+                 print(f"DEBUG: Port {self.port} is now active.")
+            else:
+                 print(f"WARNING: Timed out waiting for port {self.port}.")
+
+    @staticmethod
+    def is_port_in_use(port: int) -> bool:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s: s.settimeout(1); return s.connect_ex(('localhost', port)) == 0
+        except Exception: return False
+        
+    def _process_line(self, line:str)->bool:
+        for tunnel in self.tunnel_list:
+            if self.extract_url(tunnel,line): return True
+        return False
+        
+    def extract_url(self, tunnel:TunnelDict, line:str)->bool:
+        match = tunnel['pattern'].search(line)
+        if match:
+            url = match.group().strip()
+            url = url if url.startswith('http') else 'http://' + url
+            with self.urls_lock:
+                # Avoid adding duplicate URLs
+                if not any(u[0] == url for u in self.urls):
+                    self.urls.append((url, tunnel.get('note'), tunnel.get('name')))
+                    print(f"\n--- ✅ DETECTED PUBLIC URL: {url} --- \n")
+            return True
+        return False
+        
     def stop(self) -> None: self.stop_event.set(); self.terminate_processes(); self.join_threads(); self.reset()
     def terminate_processes(self) -> None:
         for p in self.processes:
@@ -139,34 +175,6 @@ class Tunnel:
     def join_threads(self) -> None:
         for j in self.jobs: j.join(timeout=2)
     def reset(self) -> None: self._is_running=False; self.urls.clear(); self.jobs.clear(); self.processes.clear(); self.stop_event.clear(); self.printed.clear()
-    def wait_for_port_if_needed(self) -> None:
-        if self.check_local_port: self.wait_for_condition(lambda: self.is_port_in_use(self.port) or self.stop_event.is_set(), interval=1, timeout=None)
-    @staticmethod
-    def is_port_in_use(port: int) -> bool:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s: s.settimeout(1); return s.connect_ex(('localhost', port)) == 0
-        except Exception: return False
-    @staticmethod
-    def wait_for_condition(c,*,i=1,t=10)->bool:
-        s=time.time();e=0;n=0;t=max(1,t)if t is not None else None
-        while True:
-            if c():return True
-            n+=1;e=time.time()-s
-            if t is not None and e>=t:return False
-            d=min(i,(t-e)/(n+1))if t else i;time.sleep(d)
-    def _process_line(self, l:str)->bool:
-        for t in self.tunnel_list:
-            if self.extract_url(t,l):return True
-        return False
-    def extract_url(self, t:TunnelDict,l:str)->bool:
-        m=t['pattern'].search(l)
-        if m:
-            u=m.group().strip();u=u if u.startswith('http')else'http://'+u
-            n,a,c=t.get('note'),t.get('name'),t.get('callback')
-            with self.urls_lock:self.urls.append((u,n,a))
-            if c:self.invoke_callback(c,u,n,a)
-            return True
-        return False
     def invoke_callback(self,c,u,n,a):
         try:c(u,n,a)
         except Exception:self.logger.error('Error in URL callback',exc_info=True)
