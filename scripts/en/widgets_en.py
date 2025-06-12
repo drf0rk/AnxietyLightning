@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v17.2 - Asyncio Fix)
+# /content/ANXETY/scripts/en/widgets_en.py (v17.3 - Synchronous Fix)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -11,7 +11,6 @@ import json
 import time
 import ast
 import re
-import asyncio
 from IPython import get_ipython
 
 # --- Pathing & Imports ---
@@ -50,6 +49,7 @@ class AnxietyUI:
         display(self.layouts['main_container'])
 
     def _create_widgets(self):
+        # ... (This method remains unchanged)
         self.widgets['sdxl_toggle'] = self.factory.create_toggle_button(description="SDXL Models", value=False, button_style='info', tooltip='Toggle SDXL Models', icon='rocket')
         self.widgets['detailed_download'] = self.factory.create_checkbox(description="Detailed download")
         webui_options = ['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX']
@@ -62,6 +62,7 @@ class AnxietyUI:
         self.buttons['downloader_analyze'] = self.factory.create_button("Analyze & Add to Library", icon='cogs', button_style='info')
 
     def _create_layouts(self):
+        # ... (This method remains unchanged)
         downloader_input_box = self.factory.create_hbox([self.widgets['downloader_url_input'], self.buttons['downloader_add_to_pool']], layout={'width': '100%'})
         self.widgets['downloader_url_input'].layout.width = '85%'
         downloader_container = self.factory.create_vbox([
@@ -89,6 +90,7 @@ class AnxietyUI:
         ])
 
     def _assign_callbacks(self):
+        # ... (This method remains unchanged)
         self.widgets['sdxl_toggle'].observe(self._on_sdxl_toggled, names='value')
         self.widgets['change_webui'].observe(self._on_webui_changed, names='value')
         self.buttons['launch'].on_click(self.on_launch_click)
@@ -109,7 +111,7 @@ class AnxietyUI:
             self.widgets['downloader_url_pool'].options = self.url_pool
             self.widgets['downloader_url_input'].value = ""
 
-    # --- START OF ASYNCIO FIX ---
+    # --- START OF SYNCHRONOUS FIX ---
     def _on_downloader_analyze_clicked(self, b):
         if not self.url_pool:
             with self.layouts['output_layout']:
@@ -117,47 +119,39 @@ class AnxietyUI:
             return
 
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
-        with self.layouts['output_layout']:
-            clear_output(wait=True); print("Analyzing URLs...")
         
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-        loop.create_task(self._process_urls_and_update_ui())
-
-    async def _process_urls_and_update_ui(self):
-        """Helper to run async processing and then update UI widgets."""
-        await self._process_urls(self.url_pool)
+        # Call the synchronous processing function directly
+        self._process_urls_synchronously(self.url_pool)
         
+        # Reset UI elements after processing is finished
         self.url_pool = []
         self.widgets['downloader_url_pool'].options = self.url_pool
-        
-        self.buttons['downloader_analyze'].description = "Analyze & Add to Library"
-        self.buttons['downloader_analyze'].icon = "cogs"
-        self.buttons['downloader_analyze'].disabled = False
-        
+        b.description = "Analyze & Add to Library"; b.icon = "cogs"; b.disabled = False
         with self.layouts['output_layout']:
             clear_output(wait=True)
             print("✅ Analysis and file writing complete! Refreshing model lists...")
         self._update_model_lists()
-    # --- END OF ASYNCIO FIX ---
 
-    async def _process_urls(self, urls):
-        for url in urls:
-            try:
-                if "civitai.com" in url:
-                    data = self.api.get_data(url)
-                    if data: self._categorize_and_write(data)
-                elif "huggingface.co" in url:
-                    self._categorize_and_write(self._get_huggingface_guesses(url))
-                await asyncio.sleep(0.5)
-            except Exception as e:
-                with self.layouts['output_layout']: print(f"❌ Failed to process URL {url}: {e}")
+    def _process_urls_synchronously(self, urls):
+        """Synchronously process a list of URLs and write them to data files."""
+        with self.layouts['output_layout']:
+            clear_output(wait=True)
+            print("Analyzing URLs...")
+            for url in urls:
+                try:
+                    print(f"Processing: {url[:80]}...")
+                    if "civitai.com" in url:
+                        data = self.api.get_data(url)
+                        if data: self._categorize_and_write(data)
+                    elif "huggingface.co" in url:
+                        self._categorize_and_write(self._get_huggingface_guesses(url))
+                    time.sleep(0.5) # Be kind to APIs
+                except Exception as e:
+                    print(f"❌ Failed to process URL {url}: {e}")
+    # --- END OF SYNCHRONOUS FIX ---
 
     def _get_huggingface_guesses(self, url):
+        # ... (This function remains unchanged)
         filename = url.split('/')[-1].split('?')[0]
         file_type = "Checkpoint"
         if "lora" in filename.lower(): file_type = "LORA"
@@ -169,93 +163,9 @@ class AnxietyUI:
                 'files': [{'name': filename, 'downloadUrl': url.replace("/blob/", "/resolve/")}]}
 
     def _categorize_and_write(self, data):
+        # ... (This function remains unchanged)
         asset_type = data.get('model', {}).get('type', 'Unknown')
         base_model = data.get('baseModel', 'Unknown')
         target_file, target_dict = None, None
         if asset_type == 'LORA':
-            target_file = ANXETY_ROOT / 'scripts' / '_loras-data.py'
-            target_dict = 'sdxl_loras' if 'SDXL' in base_model or 'Pony' in base_model else 'sd15_loras'
-        elif asset_type == 'Checkpoint':
-            target_file = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if 'SDXL' in base_model or 'Pony' in base_model else '_models-data.py')
-            target_dict = 'sdxl_models_data' if 'SDXL' in base_model or 'Pony' in base_model else 'sd15_model_data'
-        if not target_file or not target_dict:
-            with self.layouts['output_layout']: print(f"⚠️ Could not categorize model '{data.get('model', {}).get('name')}'. Skipping.")
-            return
-        display_name = f"{data.get('model', {}).get('name', 'Unknown')} - {data.get('name', 'v1.0')}"
-        file_info = data.get('files', [{}])[0]
-        download_url = file_info.get('downloadUrl', '').split('?')[0]
-        file_name = file_info.get('name', 'unknown.safetensors')
-        new_entry = {'display_name': display_name, 'url': download_url, 'filename': file_name}
-        self._update_data_file_with_ast(target_file, target_dict, new_entry)
-        
-    def _update_data_file_with_ast(self, file_path, dict_name, new_entry):
-        if not file_path.exists():
-            with self.layouts['output_layout']: print(f"❌ Error: Data file not found at {file_path}"); return
-        with open(file_path, 'r', encoding='utf-8') as f: source_code = f.read()
-        tree = ast.parse(source_code)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == dict_name:
-                        dict_node = node.value
-                        if isinstance(dict_node, ast.Dict):
-                            if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
-                                with self.layouts['output_layout']: print(f"ℹ️ Model '{new_entry['display_name']}' already exists. Skipping."); return
-                            key_node = ast.Constant(value=new_entry['display_name'])
-                            value_node = ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])
-                            dict_node.keys.append(key_node)
-                            dict_node.values.append(value_node)
-                            break
-        else:
-            with self.layouts['output_layout']: print(f"❌ Error: Could not find dictionary '{dict_name}' in {file_path}"); return
-        new_source_code = ast.unparse(tree)
-        with open(file_path, 'w', encoding='utf-8') as f: f.write(new_source_code)
-        with self.layouts['output_layout']: print(f"✅ Successfully added '{new_entry['display_name']}' to {dict_name}.")
-        
-    def _on_sdxl_toggled(self, change): self._update_model_lists()
-    def _update_model_lists(self):
-        is_xl = self.widgets['sdxl_toggle'].value
-        models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
-        loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
-        if not models_py_path.exists(): return
-        models_data = runpy.run_path(str(models_py_path))
-        loras_data = runpy.run_path(str(loras_py_path))
-        model_dict = models_data.get('sdxl_models_data' if is_xl else 'sd15_model_data', {})
-        vae_dict = models_data.get('sdxl_vae_data' if is_xl else 'sd15_vae_data', {})
-        cnet_dict = models_data.get('controlnet_list', {})
-        lora_dict = loras_data.get('lora_data', {}).get('sdxl_loras' if is_xl else 'sd15_loras', {})
-        self.widgets['model_list'] = [self.factory.create_checkbox(description=name) for name in model_dict.keys()]
-        self.widgets['vae_list'] = [self.factory.create_checkbox(description=name) for name in vae_dict.keys()]
-        self.widgets['controlnet_list'] = [self.factory.create_checkbox(description=name) for name in cnet_dict.keys()]
-        self.widgets['lora_list'] = [self.factory.create_checkbox(description=name) for name in lora_dict.keys()]
-        self.layouts['models_box'].children = tuple(self.widgets['model_list'])
-        self.layouts['vaes_box'].children = tuple(self.widgets['vae_list'])
-        self.layouts['cnets_box'].children = tuple(self.widgets['controlnet_list'])
-        self.layouts['loras_box'].children = tuple(self.widgets['lora_list'])
-        
-    def on_launch_click(self, b):
-        b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
-        with self.layouts['output_layout']:
-            clear_output(wait=True)
-            self.save_settings()
-            print("\n--- 2. Running Environment Setup (VENV & Assets) ---")
-            get_ipython().run_line_magic('run', str(ANXETY_ROOT / 'scripts' / 'en' / 'downloading-en.py'))
-            print("\n--- 3. Launching WebUI ---")
-            get_ipython().run_line_magic('run', str(ANXETY_ROOT / 'scripts' / 'launch.py'))
-        b.description = "Launch Complete"; b.icon = "check"; b.disabled = False
-        
-    def save_settings(self):
-        print("--- 1. Saving All UI Settings ---")
-        SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
-        widget_values = {k: v.value for k, v in self.widgets.items() if hasattr(v, 'value') and not isinstance(v, list)}
-        for key in ['model_list', 'vae_list', 'controlnet_list', 'lora_list']:
-            if key in self.widgets:
-                widget_values[key] = [cb.description for cb in self.widgets[key] if cb.value]
-        js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
-        js.save(str(SETTINGS_PATH), 'ENVIRONMENT.home_path', '/content')
-        update_current_webui(widget_values['change_webui'])
-        print("✅ Configuration saved to settings.json")
-
-if __name__ == "__main__":
-    ui = AnxietyUI()
-    ui.create_ui()
+            target_file = ANXETY_ROOT / 'scripts' / '_
