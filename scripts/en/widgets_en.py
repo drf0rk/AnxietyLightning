@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v17.4 - Persistent Error Log)
+# /content/ANXETY/scripts/en/widgets_en.py (v17.5 - AST Writer Fix)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -108,55 +108,36 @@ class AnxietyUI:
             self.widgets['downloader_url_pool'].options = self.url_pool
             self.widgets['downloader_url_input'].value = ""
 
-    # --- START OF LOGGING FIX ---
     def _on_downloader_analyze_clicked(self, b):
         if not self.url_pool:
             with self.layouts['output_layout']:
                 clear_output(wait=True); print("⚠️ URL Pool is empty. Please add at least one URL.")
             return
-
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
-        
-        # This function now handles its own output clearing.
         self._process_urls_synchronously(self.url_pool)
-        
-        # Reset UI elements after processing is finished
         self.url_pool = []
         self.widgets['downloader_url_pool'].options = self.url_pool
         b.description = "Analyze & Add to Library"; b.icon = "cogs"; b.disabled = False
-        
         with self.layouts['output_layout']:
-            # Append a final message without clearing the log.
-            print("\n✅ Analysis complete! Refreshing model lists...")
+            clear_output(wait=True); print("✅ Analysis complete! Refreshing model lists...")
         self._update_model_lists()
 
     def _process_urls_synchronously(self, urls):
-        """Synchronously process URLs, creating a persistent log in the output widget."""
-        # Clear the output area ONCE before the loop starts.
         with self.layouts['output_layout']:
             clear_output(wait=True)
             print("--- Analyzing URLs ---")
-
-        # Process each URL and let the output accumulate.
         for url in urls:
             try:
-                # The 'with' statement ensures that even if an error occurs below,
-                # the output is directed to the correct widget.
                 with self.layouts['output_layout']:
                     if "civitai.com" in url:
                         data = self.api.get_data(url)
-                        if data:
-                            self._categorize_and_write(data)
-                        else:
-                            print(f"❌ Failed to retrieve data for Civitai URL: {url[:70]}...")
+                        if data: self._categorize_and_write(data)
+                        else: print(f"❌ Failed to retrieve data for Civitai URL: {url[:70]}...")
                     elif "huggingface.co" in url:
                         self._categorize_and_write(self._get_huggingface_guesses(url))
-                
-                time.sleep(0.2) # Small delay to be kind to APIs
+                time.sleep(0.2)
             except Exception as e:
-                with self.layouts['output_layout']:
-                    print(f"❌ An unexpected error occurred while processing {url}: {e}")
-    # --- END OF LOGGING FIX ---
+                with self.layouts['output_layout']: print(f"❌ An unexpected error occurred while processing {url}: {e}")
 
     def _get_huggingface_guesses(self, url):
         filename = url.split('/')[-1].split('?')[0]
@@ -171,101 +152,3 @@ class AnxietyUI:
 
     def _categorize_and_write(self, data):
         asset_type = data.get('model', {}).get('type', 'Unknown')
-        base_model = data.get('baseModel', 'Unknown')
-        target_file, target_dict = None, None
-        
-        is_sdxl_type = 'SDXL' in base_model or 'Pony' in base_model
-
-        if asset_type == 'LORA':
-            target_file = ANXETY_ROOT / 'scripts' / '_loras-data.py'
-            target_dict = 'sdxl_loras' if is_sdxl_type else 'sd15_loras'
-        elif asset_type == 'Checkpoint':
-            if is_sdxl_type:
-                target_file = ANXETY_ROOT / 'scripts' / '_xl-models-data.py'
-                target_dict = 'sdxl_models_data'
-            else:
-                target_file = ANXETY_ROOT / 'scripts' / '_models-data.py'
-                target_dict = 'sd15_model_data'
-        
-        if not target_file or not target_dict:
-            with self.layouts['output_layout']: print(f"⚠️ Could not categorize model '{data.get('model', {}).get('name')}'. Skipping.")
-            return
-
-        display_name = f"{data.get('model', {}).get('name', 'Unknown')} - {data.get('name', 'v1.0')}"
-        file_info = data.get('files', [{}])[0]
-        download_url = file_info.get('downloadUrl', '').split('?')[0]
-        file_name = file_info.get('name', 'unknown.safetensors')
-        new_entry = {'display_name': display_name, 'url': download_url, 'filename': file_name}
-        self._update_data_file_with_ast(target_file, target_dict, new_entry)
-        
-    def _update_data_file_with_ast(self, file_path, dict_name, new_entry):
-        if not file_path.exists():
-            with self.layouts['output_layout']: print(f"❌ Error: Data file not found at {file_path}"); return
-        with open(file_path, 'r', encoding='utf-8') as f: source_code = f.read()
-        tree = ast.parse(source_code)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == dict_name:
-                        dict_node = node.value
-                        if isinstance(dict_node, ast.Dict):
-                            if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
-                                with self.layouts['output_layout']: print(f"ℹ️ Model '{new_entry['display_name']}' already exists. Skipping."); return
-                            key_node = ast.Constant(value=new_entry['display_name'])
-                            value_node = ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])
-                            dict_node.keys.append(key_node)
-                            dict_node.values.append(value_node)
-                            break
-        else:
-            with self.layouts['output_layout']: print(f"❌ Error: Could not find dictionary '{dict_name}' in {file_path}"); return
-        new_source_code = ast.unparse(tree)
-        with open(file_path, 'w', encoding='utf-8') as f: f.write(new_source_code)
-        with self.layouts['output_layout']: print(f"✅ Successfully added '{new_entry['display_name']}' to {dict_name}.")
-        
-    def _on_sdxl_toggled(self, change): self._update_model_lists()
-    def _update_model_lists(self):
-        is_xl = self.widgets['sdxl_toggle'].value
-        models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
-        loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
-        if not models_py_path.exists(): return
-        models_data = runpy.run_path(str(models_py_path))
-        loras_data = runpy.run_path(str(loras_py_path))
-        model_dict = models_data.get('sdxl_models_data' if is_xl else 'sd15_model_data', {})
-        vae_dict = models_data.get('sdxl_vae_data' if is_xl else 'sd15_vae_data', {})
-        cnet_dict = models_data.get('controlnet_list', {})
-        lora_dict = loras_data.get('lora_data', {}).get('sdxl_loras' if is_xl else 'sd15_loras', {})
-        self.widgets['model_list'] = [self.factory.create_checkbox(description=name) for name in model_dict.keys()]
-        self.widgets['vae_list'] = [self.factory.create_checkbox(description=name) for name in vae_dict.keys()]
-        self.widgets['controlnet_list'] = [self.factory.create_checkbox(description=name) for name in cnet_dict.keys()]
-        self.widgets['lora_list'] = [self.factory.create_checkbox(description=name) for name in lora_dict.keys()]
-        self.layouts['models_box'].children = tuple(self.widgets['model_list'])
-        self.layouts['vaes_box'].children = tuple(self.widgets['vae_list'])
-        self.layouts['cnets_box'].children = tuple(self.widgets['controlnet_list'])
-        self.layouts['loras_box'].children = tuple(self.widgets['lora_list'])
-        
-    def on_launch_click(self, b):
-        b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
-        with self.layouts['output_layout']:
-            clear_output(wait=True)
-            self.save_settings()
-            print("\n--- 2. Running Environment Setup (VENV & Assets) ---")
-            get_ipython().run_line_magic('run', str(ANXETY_ROOT / 'scripts' / 'en' / 'downloading-en.py'))
-            print("\n--- 3. Launching WebUI ---")
-            get_ipython().run_line_magic('run', str(ANXETY_ROOT / 'scripts' / 'launch.py'))
-        b.description = "Launch Complete"; b.icon = "check"; b.disabled = False
-        
-    def save_settings(self):
-        print("--- 1. Saving All UI Settings ---")
-        SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
-        widget_values = {k: v.value for k, v in self.widgets.items() if hasattr(v, 'value') and not isinstance(v, list)}
-        for key in ['model_list', 'vae_list', 'controlnet_list', 'lora_list']:
-            if key in self.widgets:
-                widget_values[key] = [cb.description for cb in self.widgets[key] if cb.value]
-        js.save(str(SETTINGS_PATH), 'WIDGETS', widget_values)
-        js.save(str(SETTINGS_PATH), 'ENVIRONMENT.home_path', '/content')
-        update_current_webui(widget_values['change_webui'])
-        print("✅ Configuration saved to settings.json")
-
-if __name__ == "__main__":
-    ui = AnxietyUI()
-    ui.create_ui()
