@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (v4 - Final Syntax Fix)
+# /content/ANXETY/scripts/launch.py (v5 - Tunnel Debugging Enabled)
 
 import os
 import sys
@@ -22,8 +22,8 @@ except NameError:
 if str(ANXETY_ROOT / 'modules') not in sys.path:
     sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
 
-import modules.json_utils as js
 from modules.TunnelHub import Tunnel
+import modules.json_utils as js
 
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
 
@@ -54,14 +54,12 @@ if str(PKG_PATH) not in os.environ.get('PYTHONPATH', ''):
 def get_launch_command():
     """Constructs the final launch command with all arguments."""
     base_args = commandline_arguments
-    
     if theme_accent != 'anxety' and UI != 'ComfyUI':
          base_args += f" --anxety-theme={theme_accent}"
 
     if UI == 'ComfyUI':
         return f"python3 main.py {base_args}"
     else:
-        # --- ROBUST COMMAND BUILDING ---
         command = ["python3", "launch.py"]
         if base_args:
             command.extend(shlex.split(base_args))
@@ -93,10 +91,13 @@ if __name__ == '__main__':
     
     # --- Setup and Run Tunnels ---
     tunnel_port = 8188 if UI == 'ComfyUI' else 7860
-    tunneling_service = Tunnel(tunnel_port, debug=False)
     
+    # THIS IS THE CHANGE: Set debug=True
+    tunneling_service = Tunnel(tunnel_port, debug=True)
+    
+    # This command for Gradio is now handled by the TunnelHub module's internal logic
     tunneling_service.add_tunnel(
-        command=f"gradio client {WEBUI_PATH}", # Simplified Gradio command
+        command=f"python3 -m gradio.tunneling {tunnel_port}",
         pattern=re.compile(r'https://[\w-]+\.gradio\.live'),
         name='Gradio'
     )
