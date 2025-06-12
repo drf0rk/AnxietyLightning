@@ -64,6 +64,7 @@ class AnxietyUI:
 
     def _create_layouts(self):
         self.layouts['main_output_area'] = widgets.VBox()
+        self.layouts['launch_output_area'] = widgets.Output() # ADD THIS LINE: New Output widget for launch logs
         downloader_input_box = self.factory.create_hbox([self.widgets['downloader_url_input'], self.buttons['downloader_add_to_pool']], layout={'width': '100%'})
         self.widgets['downloader_url_input'].layout.width = '85%'
         downloader_container = self.factory.create_vbox([
@@ -77,7 +78,7 @@ class AnxietyUI:
         self.buttons['launch'] = self.factory.create_button(description="Install, Download & Launch", class_names=['button', 'button_save'], icon='paper-plane')
         top_bar = widgets.HBox([self.widgets['change_webui'], self.widgets['sdxl_toggle'], self.widgets['detailed_download']])
         self.layouts['initial_view'] = widgets.VBox([top_bar, self.widgets['commandline_arguments'], downloader_container, accordion, self.buttons['launch']])
-        self.layouts['main_output_area'].children = [self.layouts['initial_view']]
+        self.layouts['main_output_area'].children = [self.layouts['initial_view'], self.layouts['launch_output_area']] # MODIFY THIS LINE: Add launch_output_area
         self.layouts['main_container'] = self.layouts['main_output_area']
 
     def _assign_callbacks(self):
@@ -163,7 +164,10 @@ class AnxietyUI:
         confirm_button = self.factory.create_button("Confirm & Add to Library", icon='check', class_names=['button_save'])
         confirm_button.on_click(self._on_confirm_and_write_clicked)
         review_stage_layout = widgets.VBox([self.factory.create_header("Downloader - Stage 2: Review & Confirm"), *review_rows, confirm_button])
-        self.layouts['main_output_area'].children = [review_stage_layout]
+        self.layouts['main_output_area'].children = [self.layouts['initial_view'], review_stage_layout] # MODIFY THIS LINE: Ensure initial_view is still present or managed correctly
+                                                                                                        # This line makes sure the review stage replaces/follows the initial view correctly.
+                                                                                                        # If you want to replace, assign directly: self.layouts['main_output_area'].children = [review_stage_layout]
+
 
     def _on_confirm_and_write_clicked(self, b):
         b.description = "Writing..."; b.icon = "spinner"; b.disabled = True
@@ -275,7 +279,8 @@ class AnxietyUI:
         
     def on_launch_click(self, b):
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
-        with self.layouts['main_output_area']:
+        # REMOVED: with self.layouts['main_output_area']:
+        with self.layouts['launch_output_area']: # MODIFIED THIS LINE: Use the dedicated Output widget
             clear_output(wait=True)
             self.save_settings()
             print("\n--- 2. Running Environment Setup (VENV & Assets) ---")
