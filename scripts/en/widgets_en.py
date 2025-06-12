@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v17.3 - Synchronous Fix)
+# /content/ANXETY/scripts/en/widgets_en.py (v17.4 - Persistent Error Log)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -49,7 +49,6 @@ class AnxietyUI:
         display(self.layouts['main_container'])
 
     def _create_widgets(self):
-        # ... (This method remains unchanged)
         self.widgets['sdxl_toggle'] = self.factory.create_toggle_button(description="SDXL Models", value=False, button_style='info', tooltip='Toggle SDXL Models', icon='rocket')
         self.widgets['detailed_download'] = self.factory.create_checkbox(description="Detailed download")
         webui_options = ['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX']
@@ -62,7 +61,6 @@ class AnxietyUI:
         self.buttons['downloader_analyze'] = self.factory.create_button("Analyze & Add to Library", icon='cogs', button_style='info')
 
     def _create_layouts(self):
-        # ... (This method remains unchanged)
         downloader_input_box = self.factory.create_hbox([self.widgets['downloader_url_input'], self.buttons['downloader_add_to_pool']], layout={'width': '100%'})
         self.widgets['downloader_url_input'].layout.width = '85%'
         downloader_container = self.factory.create_vbox([
@@ -90,7 +88,6 @@ class AnxietyUI:
         ])
 
     def _assign_callbacks(self):
-        # ... (This method remains unchanged)
         self.widgets['sdxl_toggle'].observe(self._on_sdxl_toggled, names='value')
         self.widgets['change_webui'].observe(self._on_webui_changed, names='value')
         self.buttons['launch'].on_click(self.on_launch_click)
@@ -111,7 +108,7 @@ class AnxietyUI:
             self.widgets['downloader_url_pool'].options = self.url_pool
             self.widgets['downloader_url_input'].value = ""
 
-    # --- START OF SYNCHRONOUS FIX ---
+    # --- START OF LOGGING FIX ---
     def _on_downloader_analyze_clicked(self, b):
         if not self.url_pool:
             with self.layouts['output_layout']:
@@ -120,38 +117,48 @@ class AnxietyUI:
 
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
         
-        # Call the synchronous processing function directly
+        # This function now handles its own output clearing.
         self._process_urls_synchronously(self.url_pool)
         
         # Reset UI elements after processing is finished
         self.url_pool = []
         self.widgets['downloader_url_pool'].options = self.url_pool
         b.description = "Analyze & Add to Library"; b.icon = "cogs"; b.disabled = False
+        
         with self.layouts['output_layout']:
-            clear_output(wait=True)
-            print("✅ Analysis and file writing complete! Refreshing model lists...")
+            # Append a final message without clearing the log.
+            print("\n✅ Analysis complete! Refreshing model lists...")
         self._update_model_lists()
 
     def _process_urls_synchronously(self, urls):
-        """Synchronously process a list of URLs and write them to data files."""
+        """Synchronously process URLs, creating a persistent log in the output widget."""
+        # Clear the output area ONCE before the loop starts.
         with self.layouts['output_layout']:
             clear_output(wait=True)
-            print("Analyzing URLs...")
-            for url in urls:
-                try:
-                    print(f"Processing: {url[:80]}...")
+            print("--- Analyzing URLs ---")
+
+        # Process each URL and let the output accumulate.
+        for url in urls:
+            try:
+                # The 'with' statement ensures that even if an error occurs below,
+                # the output is directed to the correct widget.
+                with self.layouts['output_layout']:
                     if "civitai.com" in url:
                         data = self.api.get_data(url)
-                        if data: self._categorize_and_write(data)
+                        if data:
+                            self._categorize_and_write(data)
+                        else:
+                            print(f"❌ Failed to retrieve data for Civitai URL: {url[:70]}...")
                     elif "huggingface.co" in url:
                         self._categorize_and_write(self._get_huggingface_guesses(url))
-                    time.sleep(0.5) # Be kind to APIs
-                except Exception as e:
-                    print(f"❌ Failed to process URL {url}: {e}")
-    # --- END OF SYNCHRONOUS FIX ---
+                
+                time.sleep(0.2) # Small delay to be kind to APIs
+            except Exception as e:
+                with self.layouts['output_layout']:
+                    print(f"❌ An unexpected error occurred while processing {url}: {e}")
+    # --- END OF LOGGING FIX ---
 
     def _get_huggingface_guesses(self, url):
-        # ... (This function remains unchanged)
         filename = url.split('/')[-1].split('?')[0]
         file_type = "Checkpoint"
         if "lora" in filename.lower(): file_type = "LORA"
@@ -163,19 +170,27 @@ class AnxietyUI:
                 'files': [{'name': filename, 'downloadUrl': url.replace("/blob/", "/resolve/")}]}
 
     def _categorize_and_write(self, data):
-        # ... (This function remains unchanged)
         asset_type = data.get('model', {}).get('type', 'Unknown')
         base_model = data.get('baseModel', 'Unknown')
         target_file, target_dict = None, None
+        
+        is_sdxl_type = 'SDXL' in base_model or 'Pony' in base_model
+
         if asset_type == 'LORA':
             target_file = ANXETY_ROOT / 'scripts' / '_loras-data.py'
-            target_dict = 'sdxl_loras' if 'SDXL' in base_model or 'Pony' in base_model else 'sd15_loras'
+            target_dict = 'sdxl_loras' if is_sdxl_type else 'sd15_loras'
         elif asset_type == 'Checkpoint':
-            target_file = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if 'SDXL' in base_model or 'Pony' in base_model else '_models-data.py')
-            target_dict = 'sdxl_models_data' if 'SDXL' in base_model or 'Pony' in base_model else 'sd15_model_data'
+            if is_sdxl_type:
+                target_file = ANXETY_ROOT / 'scripts' / '_xl-models-data.py'
+                target_dict = 'sdxl_models_data'
+            else:
+                target_file = ANXETY_ROOT / 'scripts' / '_models-data.py'
+                target_dict = 'sd15_model_data'
+        
         if not target_file or not target_dict:
             with self.layouts['output_layout']: print(f"⚠️ Could not categorize model '{data.get('model', {}).get('name')}'. Skipping.")
             return
+
         display_name = f"{data.get('model', {}).get('name', 'Unknown')} - {data.get('name', 'v1.0')}"
         file_info = data.get('files', [{}])[0]
         download_url = file_info.get('downloadUrl', '').split('?')[0]
@@ -184,7 +199,6 @@ class AnxietyUI:
         self._update_data_file_with_ast(target_file, target_dict, new_entry)
         
     def _update_data_file_with_ast(self, file_path, dict_name, new_entry):
-        # ... (This function remains unchanged)
         if not file_path.exists():
             with self.layouts['output_layout']: print(f"❌ Error: Data file not found at {file_path}"); return
         with open(file_path, 'r', encoding='utf-8') as f: source_code = f.read()
@@ -210,7 +224,6 @@ class AnxietyUI:
         
     def _on_sdxl_toggled(self, change): self._update_model_lists()
     def _update_model_lists(self):
-        # ... (This function remains unchanged)
         is_xl = self.widgets['sdxl_toggle'].value
         models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
         loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
@@ -231,7 +244,6 @@ class AnxietyUI:
         self.layouts['loras_box'].children = tuple(self.widgets['lora_list'])
         
     def on_launch_click(self, b):
-        # ... (This function remains unchanged)
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
         with self.layouts['output_layout']:
             clear_output(wait=True)
@@ -243,7 +255,6 @@ class AnxietyUI:
         b.description = "Launch Complete"; b.icon = "check"; b.disabled = False
         
     def save_settings(self):
-        # ... (This function remains unchanged)
         print("--- 1. Saving All UI Settings ---")
         SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
         widget_values = {k: v.value for k, v in self.widgets.items() if hasattr(v, 'value') and not isinstance(v, list)}
