@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (v6 - Correct Tunnel Command)
+# /content/ANXETY/scripts/launch.py (v7 - Correct Tunnel Commands)
 
 import os
 import sys
@@ -52,31 +52,19 @@ if str(PKG_PATH) not in os.environ.get('PYTHONPATH', ''):
     os.environ['PYTHONPATH'] = f"{PKG_PATH}:{os.environ.get('PYTHONPATH', '')}"
 
 def get_launch_command():
-    """Constructs the final launch command with all arguments."""
     base_args = commandline_arguments
     if theme_accent != 'anxety' and UI != 'ComfyUI':
          base_args += f" --anxety-theme={theme_accent}"
-
     if UI == 'ComfyUI':
         return f"python3 main.py {base_args}"
     else:
         command = ["python3", "launch.py"]
-        if base_args:
-            command.extend(shlex.split(base_args))
-        
+        if base_args: command.extend(shlex.split(base_args))
         shared_models_dir = HOME / 'sd_models_shared' / 'models'
-        path_args = {
-            "--ckpt-dir": shared_models_dir / 'Stable-diffusion',
-            "--vae-dir": shared_models_dir / 'VAE',
-            "--lora-dir": shared_models_dir / 'Lora',
-            "--embeddings-dir": shared_models_dir / 'embeddings',
-            "--controlnet-dir": shared_models_dir / 'ControlNet'
-        }
-        
+        path_args = {"--ckpt-dir": shared_models_dir / 'Stable-diffusion', "--vae-dir": shared_models_dir / 'VAE', "--lora-dir": shared_models_dir / 'Lora', "--embeddings-dir": shared_models_dir / 'embeddings', "--controlnet-dir": shared_models_dir / 'ControlNet'}
         for arg, path in path_args.items():
             command.append(arg)
             command.append(f'"{path}"')
-            
         return " ".join(command)
 
 # --- Main Execution ---
@@ -84,20 +72,17 @@ if __name__ == '__main__':
     print('Please Wait, Launching WebUI and Tunnels...\n')
     
     if not WEBUI_PATH.exists() or not WEBUI_PATH.is_dir():
-        print(f"❌ FATAL ERROR: WebUI directory not found at the expected path: {WEBUI_PATH}")
-        sys.exit(1)
+        print(f"❌ FATAL ERROR: WebUI directory not found at the expected path: {WEBUI_PATH}"); sys.exit(1)
 
     os.chdir(WEBUI_PATH)
     
-    # --- Setup and Run Tunnels ---
     tunnel_port = 8188 if UI == 'ComfyUI' else 7860
     tunneling_service = Tunnel(tunnel_port, debug=True)
     
-    # --- THIS IS THE FIX ---
-    # Correctly call the custom gradio-tunneling.py script
-    gradio_script_path = ANXETY_ROOT / '__configs__'/ 'gradio-tunneling.py'
+    # --- THIS IS THE FIX for Gradio Tunnel ---
+    # Use the standard library command, which is more reliable
     tunneling_service.add_tunnel(
-        command=f"python3 {gradio_script_path} {tunnel_port}",
+        command=f"python3 -m gradio.tunneling {tunnel_port}",
         pattern=re.compile(r'https://[\w-]+\.gradio\.live'),
         name='Gradio'
     )
@@ -109,10 +94,7 @@ if __name__ == '__main__':
             name='Ngrok'
         )
     
-    # Launch tunnels non-blockingly
     tunneling_service.__enter__()
-
-    # --- Launch WebUI Immediately ---
     LAUNCHER_COMMAND = get_launch_command()
     print(f"🚀 Launching {UI} with command: {LAUNCHER_COMMAND}")
 
