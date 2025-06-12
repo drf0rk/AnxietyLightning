@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (v10 - FOREGROUND DEBUG for WebUI)
+# /content/ANXETY/scripts/launch.py (v11 - Cloudflare Tunnel Enabled)
 
 import os
 import sys
@@ -8,6 +8,10 @@ import yaml
 from IPython import get_ipython
 import re
 import shlex
+import asyncio
+import logging
+import requests
+import argparse
 
 # --- Pathing & Settings ---
 try:
@@ -18,6 +22,7 @@ except NameError:
 if str(ANXETY_ROOT / 'modules') not in sys.path:
     sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
 
+from modules.TunnelHub import Tunnel
 import modules.json_utils as js
 
 SETTINGS_PATH = ANXETY_ROOT / 'settings.json'
@@ -32,6 +37,7 @@ UI = webui_settings.get('current', 'Forge')
 WEBUI_PATH = Path(webui_settings.get('webui_path', str(HOME / UI)))
 commandline_arguments = widget_settings.get('commandline_arguments', '')
 theme_accent = widget_settings.get('theme_accent', 'anxety')
+ngrok_token = widget_settings.get('ngrok_token')
 
 # --- VENV PATH ACTIVATION ---
 is_classic_ui = UI == 'Classic'
@@ -75,7 +81,7 @@ def get_launch_command():
 
 # --- Main Execution ---
 if __name__ == '__main__':
-    print('Please Wait, Launching WebUI in Foreground Debug Mode...\n')
+    print('Please Wait, Launching WebUI and Tunnels...\n')
     
     if not WEBUI_PATH.exists() or not WEBUI_PATH.is_dir():
         print(f"❌ FATAL ERROR: WebUI directory not found at the expected path: {WEBUI_PATH}")
@@ -83,11 +89,42 @@ if __name__ == '__main__':
 
     os.chdir(WEBUI_PATH)
     
-    # --- Launch WebUI in the FOREGROUND ---
-    # We are removing the tunneling and the '&' to see the WebUI's output directly.
+    # --- Setup and Run Tunnels ---
+    tunnel_port = 8188 if UI == 'ComfyUI' else 7860
+    tunneling_service = Tunnel(tunnel_port, debug=True)
+    
+    # Add Gradio Tunnel
+    tunneling_service.add_tunnel(
+        command=f"python3 -m gradio.tunneling {tunnel_port}",
+        pattern=re.compile(r'https://[\w-]+\.gradio\.live'),
+        name='Gradio'
+    )
+    
+    # Add Ngrok Tunnel if token exists
+    if ngrok_token:
+        tunneling_service.add_tunnel(
+            command=f"ngrok http {tunnel_port} --authtoken={ngrok_token} --log=stdout",
+            pattern=re.compile(r'https://[a-zA-Z0-9.-]+\.ngrok-free\.app'),
+            name='Ngrok'
+        )
+
+    # --- ADDED CLOUDFLARE TUNNEL ---
+    tunneling_service.add_tunnel(
+        command=f"cloudflared tunnel --url http://localhost:{tunnel_port}",
+        pattern=re.compile(r'https://[a-zA-Z0-9.-]+\.trycloudflare\.com'),
+        name='Cloudflare'
+    )
+    
+    # Launch tunnels non-blockingly
+    tunneling_service.__enter__()
+
+    # --- Launch WebUI Immediately ---
     LAUNCHER_COMMAND = get_launch_command()
     print(f"🚀 Launching {UI} with command: {LAUNCHER_COMMAND}")
 
     ipython = get_ipython()
-    # Note: The "&" is removed to make this a blocking call.
-    ipython.system_raw(f"{LAUNCHER_COMMAND}")
+    ipython.system_raw(f"{LAUNCHER_COMMAND} &")
+
+    print("\n✅ WebUI and Tunnels are launching in the background.")
+    print("The public URL(s) will appear above shortly as they become available.")
+    print("This cell will keep running to maintain the connection. Interrupt the kernel (Stop button) to end the session.")
