@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v17.5 - AST Writer Fix)
+# /content/ANXETY/scripts/en/widgets_en.py (v17.6 - Final Logging Fix)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -108,36 +108,51 @@ class AnxietyUI:
             self.widgets['downloader_url_pool'].options = self.url_pool
             self.widgets['downloader_url_input'].value = ""
 
+    # --- START OF LOGGING FIX v2 ---
     def _on_downloader_analyze_clicked(self, b):
         if not self.url_pool:
             with self.layouts['output_layout']:
                 clear_output(wait=True); print("⚠️ URL Pool is empty. Please add at least one URL.")
             return
+
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
+        
+        # This function now handles its own output.
         self._process_urls_synchronously(self.url_pool)
+        
+        # Reset UI elements
         self.url_pool = []
         self.widgets['downloader_url_pool'].options = self.url_pool
         b.description = "Analyze & Add to Library"; b.icon = "cogs"; b.disabled = False
+        
+        # This 'with' block NO LONGER clears the output.
         with self.layouts['output_layout']:
-            clear_output(wait=True); print("✅ Analysis complete! Refreshing model lists...")
+            print("\n✅ Analysis complete! Refreshing model lists...")
         self._update_model_lists()
 
     def _process_urls_synchronously(self, urls):
+        # Clear the output area ONCE before the loop starts.
         with self.layouts['output_layout']:
             clear_output(wait=True)
             print("--- Analyzing URLs ---")
+
+        # Process each URL, and all output will be preserved.
         for url in urls:
             try:
                 with self.layouts['output_layout']:
                     if "civitai.com" in url:
                         data = self.api.get_data(url)
-                        if data: self._categorize_and_write(data)
-                        else: print(f"❌ Failed to retrieve data for Civitai URL: {url[:70]}...")
+                        if data:
+                            self._categorize_and_write(data)
+                        else:
+                            print(f"❌ Failed to retrieve data for Civitai URL: {url[:70]}...")
                     elif "huggingface.co" in url:
                         self._categorize_and_write(self._get_huggingface_guesses(url))
                 time.sleep(0.2)
             except Exception as e:
-                with self.layouts['output_layout']: print(f"❌ An unexpected error occurred while processing {url}: {e}")
+                with self.layouts['output_layout']:
+                    print(f"❌ An unexpected error occurred while processing {url}: {e}")
+    # --- END OF LOGGING FIX v2 ---
 
     def _get_huggingface_guesses(self, url):
         filename = url.split('/')[-1].split('?')[0]
@@ -175,18 +190,12 @@ class AnxietyUI:
         new_entry = {'display_name': display_name, 'url': download_url, 'filename': file_name}
         self._update_data_file_with_ast(target_file, target_dict, new_entry)
         
-    # --- START OF AST WRITER FIX ---
     def _update_data_file_with_ast(self, file_path, dict_name, new_entry):
-        """Safely adds a new entry to a dictionary in a Python file using AST."""
         if not file_path.exists():
             with self.layouts['output_layout']: print(f"❌ Error: Data file not found at {file_path}"); return
-
-        with open(file_path, 'r', encoding='utf-8') as f:
-            source_code = f.read()
-        
+        with open(file_path, 'r', encoding='utf-8') as f: source_code = f.read()
         tree = ast.parse(source_code)
         found_and_modified = False
-
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
@@ -194,29 +203,20 @@ class AnxietyUI:
                         dict_node = node.value
                         if isinstance(dict_node, ast.Dict):
                             if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
-                                with self.layouts['output_layout']: print(f"ℹ️ Model '{new_entry['display_name']}' already exists. Skipping.")
-                                found_and_modified = True # Mark as found to prevent error message
-                                break
-                            
+                                with self.layouts['output_layout']: print(f"ℹ️ Model '{new_entry['display_name']}' already exists. Skipping."); return
                             key_node = ast.Constant(value=new_entry['display_name'])
                             value_node = ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')],
                                                 values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])
                             dict_node.keys.append(key_node)
                             dict_node.values.append(value_node)
                             found_and_modified = True
-                            break # Exit inner loop once found
-            if found_and_modified:
-                break # Exit outer loop
-        
+                            break
+            if found_and_modified: break
         if not found_and_modified:
             with self.layouts['output_layout']: print(f"❌ Error: Could not find dictionary '{dict_name}' in {file_path}"); return
-
         new_source_code = ast.unparse(tree)
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(new_source_code)
-        with self.layouts['output_layout']:
-            print(f"✅ Successfully added '{new_entry['display_name']}' to {dict_name}.")
-    # --- END OF AST WRITER FIX ---
+        with open(file_path, 'w', encoding='utf-8') as f: f.write(new_source_code)
+        with self.layouts['output_layout']: print(f"✅ Successfully added '{new_entry['display_name']}' to {dict_name}.")
             
     def _on_sdxl_toggled(self, change): self._update_model_lists()
     def _update_model_lists(self):
