@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v20.6 - Simplified Review UI for Diagnosis)
+# /content/ANXETY/scripts/en/widgets_en.py (v20.7 - Aggressive Display & Timing Adjustments)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -109,6 +109,7 @@ class AnxietyUI:
     def _on_add_to_pool_clicked(self, b):
         with self.layouts['main_output_area']:
             clear_output(wait=True)
+            time.sleep(0.1) # Add a small delay
             new_urls_raw = self.widgets['downloader_url_input'].value.strip()
             if not new_urls_raw:
                 print("ℹ️ No URLs provided to add.")
@@ -126,11 +127,16 @@ class AnxietyUI:
             self.widgets['downloader_url_input'].value = "" # Clear input after adding
             self.widgets['downloader_url_pool'].value = "\n".join(self.url_pool) # Update textarea display
             print(f"✅ Added {added_count} new URLs to the pool. Total URLs: {len(self.url_pool)}")
+            # Re-display the initial view after adding URLs
+            # This is implicit if main_container is already displayed and main_output_area is a child
+            # However, if main_output_area was cleared, you might want to put the initial view back
+            # For now, let's just make sure main_container is displayed once at init.
 
 
     def _on_downloader_review_clicked(self, b):
         with self.layouts['main_output_area']:
             clear_output(wait=True)
+            time.sleep(0.1) # Add a small delay
             print("Starting URL review and categorization process...")
             if not self.url_pool:
                 print("⚠️ URL Pool is empty. Please add URLs first.")
@@ -228,7 +234,7 @@ class AnxietyUI:
                         file_name_to_use = item.model_versions[0].files[0].name
                         print(f"    Civitai item: Using first file '{file_name_to_use}' from first version.")
                     else:
-                        print(f"    No files found for initial version of Civitai item '{name}'. Skipping.")
+                        print(f"    No files found for initial version of Civitai item.")
                         continue # Skip this item if no downloadable files are found.
                 elif is_hf: 
                     # For Hugging Face, assume the first file in the 'files' list
@@ -281,7 +287,8 @@ class AnxietyUI:
             review_stage_layout = widgets.VBox([self.factory.create_header("Downloader - Stage 2: Review & Confirm"), *review_rows, confirm_button])
             
             self.layouts['main_output_area'].children = [review_stage_layout]
-            # Removed redundant display(self.layouts['main_container']) call here
+            # Added explicit display call here after updating the children of the output area.
+            display(self.layouts['main_output_area']) # <--- IMPORTANT: Explicitly display the output area with new content
             
             print("Review panel displayed. Please categorize and confirm your selections.")
 
@@ -290,6 +297,7 @@ class AnxietyUI:
         b.description = "Writing..."; b.icon = "spinner"; b.disabled = True
         with self.layouts['main_output_area']:
             clear_output(wait=True)
+            time.sleep(0.1) # Add small delay
             print("--- Writing Selections to Data Scripts ---")
             success_count = 0
             for i, item_widgets in self.review_widgets.items():
@@ -314,7 +322,10 @@ class AnxietyUI:
             self._update_model_lists()
             
             clear_output(wait=True) # Clear the output of the writing process
-            # No need to display initial_view explicitly here.
+            time.sleep(0.1) # Add small delay
+            # After clearing the output area, ensure the main container is displayed again
+            # as its children might have been replaced.
+            display(self.layouts['initial_view']) # Explicitly display the initial view
             
         b.description = "Confirm & Add to Library"; b.icon = "check"; b.disabled = False # Reset button state
 
@@ -411,10 +422,17 @@ class AnxietyUI:
                 # Add hypernetwork data for _hypernetworks-data.py
                 elif file_path.name == '_hypernetworks-data.py':
                     initial_content = f"sd15_hypernetworks = {{}}\nsdxl_hypernetworks = {{}}\n"
-                
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(initial_content)
-                print(f"    Initialized {file_path.name} with basic structure.")
+                # For 'other_assets' in existing model data files, initialize it if not present
+                elif dict_name == 'other_assets' and (file_path.name == '_models-data.py' or file_path.name == '_xl-models-data.py'):
+                    # We can't just overwrite, we need to append to existing file, if not found then create
+                    # This case will be handled by the AST logic which searches for the dictionary.
+                    pass # Handled below by AST search
+
+                with open(file_path, 'a', encoding='utf-8') as f: # Use 'a' for append to avoid overwriting, AST will handle structure
+                    # Only write initial content if the file is truly new and needs it, or if a specific dict is missing
+                    if initial_content and os.path.getsize(file_path) == 0: # Check if file is empty
+                        f.write(initial_content)
+                        print(f"    Initialized empty {file_path.name} with basic structure.")
 
 
             try:
@@ -423,22 +441,19 @@ class AnxietyUI:
                 tree = ast.parse(source_code)
                 found_and_modified = False
 
+                # First, try to find and modify the dictionary if it already exists in the file
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Assign):
                         for target in node.targets:
-                            # Handle top-level dictionaries directly (e.g., sdxl_models_data)
                             if isinstance(target, ast.Name) and target.id == dict_name:
                                 dict_node = node.value
                                 if isinstance(dict_node, ast.Dict):
-                                    # Check if the display_name already exists to avoid duplicates
                                     if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
                                         print(f"    ℹ️ '{asset_type}' '{new_entry['display_name']}' already exists in {dict_name}. Skipping addition.")
                                         found_and_modified = True
                                         break
                                     
                                     key_node = ast.Constant(value=new_entry['display_name'])
-                                    
-                                    # All asset types will now use the same value_node structure for simplicity in AST
                                     value_node = ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], 
                                                           values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])
                                     
@@ -449,36 +464,35 @@ class AnxietyUI:
                                     break 
                         if found_and_modified:
                             break 
-                    # Special handling for _loras-data.py where lora_data is a dict containing other dicts
-                    elif (file_path.name == '_loras-data.py' or file_path.name == '_embeddings-data.py' or file_path.name == '_hypernetworks-data.py') and isinstance(node, ast.Assign) and hasattr(node.targets[0], 'id'):
-                        # This specific check for lora_data/embedding_data/hypernetwork_data's structure
-                        # is complex with AST. The existing AST modification for nested dicts was specifically for lora_data.
-                        # It's better to simplify the AST modification if all final entries are the same dict structure.
-                        # However, for consistency with existing _loras-data.py structure, I'll keep it.
-                        # For now, I'll just adapt the lora_data logic slightly.
-                        if file_path.name == '_loras-data.py' and node.targets[0].id == 'lora_data': 
-                            for i, key in enumerate(node.value.keys):
-                                if isinstance(key, ast.Constant) and key.value == dict_name:
-                                    dict_node = node.value.values[i]
-                                    if isinstance(dict_node, ast.Dict):
-                                        if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
-                                            print(f"    ℹ️ LoRA '{new_entry['display_name']}' already exists. Skipping."); found_and_modified = True; break
-                                        key_node = ast.Constant(value=new_entry['display_name'])
-                                        # LoRAs use a list of dicts as value
-                                        value_node = ast.List(elts=[ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])])
-                                        dict_node.keys.append(key_node); dict_node.values.append(value_node); found_and_modified = True; break
-                            if found_and_modified: break
-                        elif file_path.name == '_embeddings-data.py' and (node.targets[0].id == 'sd15_embeddings' or node.targets[0].id == 'sdxl_embeddings'):
-                             # This case should be handled by the generic `if isinstance(target, ast.Name)` block
-                             # as embeddings are flat dicts within _embeddings-data.py
-                             pass
-                        elif file_path.name == '_hypernetworks-data.py' and (node.targets[0].id == 'sd15_hypernetworks' or node.targets[0].id == 'sdxl_hypernetworks'):
-                             # This case should be handled by the generic `if isinstance(target, ast.Name)` block
-                             # as hypernetworks are flat dicts within _hypernetworks-data.py
-                             pass
+                    # Special handling for nested dictionaries (like 'lora_data' containing 'sd15_loras')
+                    elif file_path.name == '_loras-data.py' and isinstance(node, ast.Assign) and hasattr(node.targets[0], 'id') and node.targets[0].id == 'lora_data':
+                        for i, key in enumerate(node.value.keys):
+                            if isinstance(key, ast.Constant) and key.value == dict_name:
+                                dict_node = node.value.values[i]
+                                if isinstance(dict_node, ast.Dict):
+                                    if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
+                                        print(f"    ℹ️ LoRA '{new_entry['display_name']}' already exists. Skipping."); found_and_modified = True; break
+                                    key_node = ast.Constant(value=new_entry['display_name'])
+                                    value_node = ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')], values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])]) # Note: For LoRAs, it was a List of Dicts. Keeping consistent for now.
+                                    dict_node.keys.append(key_node); dict_node.values.append(value_node); found_and_modified = True; break
+                        if found_and_modified: break
+                    # More nested dicts if _embeddings-data.py or _hypernetworks-data.py also use this structure
 
-                if not found_and_modified: 
-                    print(f"    ❌ Error: Could not find dictionary '{dict_name}' or add '{new_entry['display_name']}' in {file_path}. Please check data file format and target dictionary name.", file=sys.stderr); return
+                # If the dictionary was not found, create a new Assignment node for it at the end of the file
+                if not found_and_modified:
+                    print(f"    Dictionary '{dict_name}' not found. Appending it to {file_path.name}...")
+                    new_dict_node = ast.Dict(keys=[ast.Constant(value=new_entry['display_name'])],
+                                            values=[ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')],
+                                                             values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])])
+                    new_assignment_node = ast.Assign(targets=[ast.Name(id=dict_name, ctx=ast.Store())], value=new_dict_node)
+                    
+                    # Add to the end of the tree body
+                    tree.body.append(new_assignment_node)
+                    found_and_modified = True
+                    print(f"    Successfully added new dictionary '{dict_name}' with '{new_entry['display_name']}' to '{file_path.name}'.")
+
+                if not found_and_modified: # Should not happen if logic is sound, but as a safeguard
+                    print(f"    ❌ Error: Final state - Could not find or add dictionary '{dict_name}' or add '{new_entry['display_name']}' in {file_path}. Please check data file format and target dictionary name.", file=sys.stderr); return
                 
                 new_source_code = ast.unparse(tree)
                 with open(file_path, 'w', encoding='utf-8') as f: 
@@ -487,6 +501,7 @@ class AnxietyUI:
             except Exception as e:
                 print(f"    ❌ Critical Error updating data file {file_path.name} with AST: {e}", file=sys.stderr)
                 print(f"    Please manually check {file_path.name} for corruption or confirm dictionary structure.", file=sys.stderr)
+
 
     def _on_sdxl_toggled(self, change): self._update_model_lists()
     def _update_model_lists(self):
@@ -497,34 +512,46 @@ class AnxietyUI:
             models_py_path = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_xl else '_models-data.py')
             loras_py_path = ANXETY_ROOT / 'scripts' / '_loras-data.py'
 
-            # Define potential new data files
             embeddings_py_path = ANXETY_ROOT / 'scripts' / '_embeddings-data.py'
             hypernetworks_py_path = ANXETY_ROOT / 'scripts' / '_hypernetworks-data.py'
 
             # Ensure these files exist before attempting to read them to avoid FileNotFoundError
-            for p in [models_py_path, loras_py_path, embeddings_py_path, hypernetworks_py_path]:
-                if not p.exists() and p.name in ['_embeddings-data.py', '_hypernetworks-data.py']: # Only print warning for optional files
-                    print(f"    ⚠️ Optional data file not found: {p.name}. Will not load items from it.", file=sys.stderr)
-                elif not p.exists(): # Critical files
-                    print(f"    ❌ Critical data file not found: {p.name}. Skipping relevant model list update.", file=sys.stderr)
-                    # If this is a core model/lora file and missing, we might want to halt.
-                    # For now, let's allow it to continue, but the lists will be empty.
-                    
-            models_data = runpy.run_path(str(models_py_path)) if models_py_path.exists() else {}
-            loras_data = runpy.run_path(str(loras_py_path)) if loras_py_path.exists() else {}
-            embeddings_data = runpy.run_path(str(embeddings_py_path)) if embeddings_py_path.exists() else {}
-            hypernetworks_data = runpy.run_path(str(hypernetworks_py_path)) if hypernetworks_py_path.exists() else {}
-
-            data_map = {'model_list': models_data.get('sdxl_models_data' if is_xl else 'sd15_model_data', {}),
-                        'vae_list': models_data.get('sdxl_vae_data' if is_xl else 'sd15_vae_data', {}),
-                        'controlnet_list': models_data.get('controlnet_list', {}),
-                        'lora_list': loras_data.get('lora_data', {}).get('sdxl_loras' if is_xl else 'sd15_loras', {}),
-                        'embedding_list': embeddings_data.get('sdxl_embeddings' if is_xl else 'sd15_embeddings', {}), 
-                        'hypernetwork_list': hypernetworks_data.get('sdxl_hypernetworks' if is_xl else 'sd15_hypernetworks', {}) 
-                        }
+            # Adjusted logic to be less critical for optional files
+            data_files_to_load = {
+                'models': (models_py_path, 'sdxl_models_data' if is_xl else 'sd15_model_data', 'sdxl_vae_data' if is_xl else 'sd15_vae_data', 'controlnet_list'),
+                'loras': (loras_py_path, 'lora_data'),
+                'embeddings': (embeddings_py_path, 'sdxl_embeddings' if is_xl else 'sd15_embeddings'),
+                'hypernetworks': (hypernetworks_py_path, 'sdxl_hypernetworks' if is_xl else 'sd15_hypernetworks')
+            }
             
-            # You'll need to create: self.layouts['embeddings_box'], self.layouts['hypernetworks_box']
-            # And add them to the accordion's children and titles list in _create_layouts.
+            loaded_data = {}
+            for key, (path, *dict_names) in data_files_to_load.items():
+                if path.exists():
+                    try:
+                        loaded_data[key] = runpy.run_path(str(path))
+                    except Exception as e:
+                        print(f"    ❌ Error loading data file {path.name}: {e}", file=sys.stderr)
+                        loaded_data[key] = {} # Load as empty if error
+                else:
+                    if key in ['models', 'loras']: # Critical files
+                        print(f"    ❌ Critical data file not found: {path.name}. Cannot load {key}.", file=sys.stderr)
+                    else: # Optional files
+                        print(f"    ⚠️ Optional data file not found: {path.name}. Will not load items from it.", file=sys.stderr)
+                    loaded_data[key] = {}
+
+
+            data_map = {
+                'model_list': loaded_data['models'].get('sdxl_models_data' if is_xl else 'sd15_model_data', {}),
+                'vae_list': loaded_data['models'].get('sdxl_vae_data' if is_xl else 'sd15_vae_data', {}),
+                'controlnet_list': loaded_data['models'].get('controlnet_list', {}),
+                'lora_list': loaded_data['loras'].get('lora_data', {}).get('sdxl_loras' if is_xl else 'sd15_loras', {}),
+                'embedding_list': loaded_data['embeddings'].get('sdxl_embeddings' if is_xl else 'sd15_embeddings', {}), 
+                'hypernetwork_list': loaded_data['hypernetworks'].get('sdxl_hypernetworks' if is_xl else 'sd15_hypernetworks', {}) 
+            }
+            
+            # Need to define these layouts in _create_layouts and add to accordion.
+            # self.layouts['embeddings_box'] = widgets.VBox()
+            # self.layouts['hypernetworks_box'] = widgets.VBox()
             layout_map = {'model_list': self.layouts['models_box'], 'vae_list': self.layouts['vaes_box'],
                           'controlnet_list': self.layouts['cnets_box'], 'lora_list': self.layouts['loras_box'],
                           # Add these lines after creating the VBoxes in _create_layouts
@@ -556,6 +583,7 @@ class AnxietyUI:
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
         with self.layouts['main_output_area']:
             clear_output(wait=True)
+            time.sleep(0.1) # Small delay
             print("--- Initiating Launch Sequence ---")
             self.save_settings()
             print("\n--- 2. Running Environment Setup (VENV & Assets) ---")
