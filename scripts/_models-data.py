@@ -1,6 +1,9 @@
+# /scripts/_models-data.py (URL Fix for D5K6.0)
+
 # SD 1.5 MODELS
 sd15_model_data = {
-    "D5K6.0": {"url": "https://huggingface.co/Remphanstar/Rojos/resolve/main/D5K6.0.safetensors?download=true", "name": "D5K6.0.safetensors"},
+    # FIXED URL for D5K6.0
+    "D5K6.0": {"url": "https://huggingface.co/Remphanstar/Rojos/blob/main/1.5-D5K6.0.safetensors", "name": "1.5-D5K6.0.safetensors"},
     "Merged amateurs - Mixed Amateurs": {"url": "https://civitai.com/api/download/models/179318", "name": "mergedAmateurs_mixedAmateurs.safetensors"},
     "PornMaster-Pro \u8272\u60c5\u5927\u5e08 - V10.1-VAE-inpainting - V10.1-VAE-inpainting": {"url": "https://civitai.com/api/download/models/937781", "name": "pornmasterProV101VAE_v101VAE-inpainting.safetensors"},
     "Merged Amateurs - Mixed Amateurs | Inpainting Model - v1.0": {"url": "https://civitai.com/api/download/models/188884", "name": "mergedAmateursMixed_v10-inpainting.safetensors"},
@@ -20,7 +23,6 @@ sd15_vae_data = {
 
 
 ## CONTROLNET
-
 controlnet_list = {
     "1. Openpose": [
         {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/resolve/main/control_v11p_sd15_openpose_fp16.safetensors"},
@@ -45,35 +47,4 @@ controlnet_list = {
         {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/raw/main/control_v11e_sd15_ip2p_fp16.yaml"}
     ],
     "6. Shuffle": [
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/resolve/main/control_v11e_sd15_shuffle_fp16.safetensors"},
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/raw/main/control_v11e_sd15_shuffle_fp16.yaml"}
-    ],
-    "7. Inpaint": [
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/resolve/main/control_v11p_sd15_inpaint_fp16.safetensors"},
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/raw/main/control_v11p_sd15_inpaint_fp16.yaml"}
-    ],
-    "8. MLSD": [
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/resolve/main/control_v11p_sd15_mlsd_fp16.safetensors"},
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/raw/main/control_v11p_sd15_mlsd_fp16.yaml"}
-    ],
-    "9. Normalbae": [
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/resolve/main/control_v11p_sd15_normalbae_fp16.safetensors"},
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/raw/main/control_v11p_sd15_normalbae_fp16.yaml"}
-    ],
-    "10. Scribble": [
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/resolve/main/control_v11p_sd15_scribble_fp16.safetensors"},
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/raw/main/control_v11p_sd15_scribble_fp16.yaml"}
-    ],
-    "11. Seg": [
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/resolve/main/control_v11p_sd15_seg_fp16.safetensors"},
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/raw/main/control_v11p_sd15_seg_fp16.yaml"}
-    ],
-    "12. Softedge": [
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/resolve/main/control_v11p_sd15_softedge_fp16.safetensors"},
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/raw/main/control_v11p_sd15_softedge_fp16.yaml"}
-    ],
-    "13. Tile": [
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/resolve/main/control_v11f1e_sd15_tile_fp16.safetensors"},
-        {'url': "https://huggingface.co/ckpt/ControlNet-v1-1/raw/main/control_v11f1e_sd15_tile_fp16.yaml"}
-    ]
-}
+        {'url': "
