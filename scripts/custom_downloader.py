@@ -5,6 +5,7 @@ from IPython.display import display, clear_output
 import asyncio
 import ast
 from pathlib import Path
+import sys # <--- THIS IS THE FIX
 
 # --- Self-aware pathing to allow sibling imports ---
 try:
@@ -13,8 +14,9 @@ except NameError:
     ANXETY_ROOT = Path('/content/ANXETY')
 
 # Ensure other modules can be imported
-if str(ANXETY_ROOT / 'modules') not in sys.path:
-    sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
+# The path to add should be the project root, not the modules folder itself.
+if str(ANXETY_ROOT) not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT))
 
 from modules.widget_factory import WidgetFactory
 from modules.CivitaiAPI import CivitAiAPI
@@ -104,7 +106,6 @@ class CustomDownloaderUI:
     def _structure_huggingface_data(self, url):
         """Parses HF URL to create a guessed internal structure."""
         filename = url.split('/')[-1]
-        # Basic keyword guessing
         file_type = "Checkpoint"
         if "lora" in filename.lower(): file_type = "LORA"
         if "vae" in filename.lower(): file_type = "VAE"
@@ -127,10 +128,9 @@ class CustomDownloaderUI:
         header = self.factory.create_header("Custom File Downloader - Stage 2: Review & Confirm")
         
         review_rows = []
-        self.review_widgets = {} # Reset to store new widgets
+        self.review_widgets = {}
         
         for i, item in enumerate(self.processed_data):
-            # Create widgets for this row
             name_label = self.factory.create_html(f"<b>{item['name']}</b>")
             type_dropdown = self.factory.create_dropdown(options=['Checkpoint', 'LORA', 'VAE', 'ControlNet'], value=item['type'], description="Asset Type:")
             base_model_dropdown = self.factory.create_dropdown(options=['SD 1.5', 'SDXL 1.0', 'Pony'], value=item['base_model'], description="Base Model:")
@@ -138,7 +138,6 @@ class CustomDownloaderUI:
             file_options = {f['name']: f['downloadUrl'] for f in item['files']}
             file_dropdown = self.factory.create_dropdown(options=list(file_options.keys()), description="File:")
             
-            # Store widgets for later retrieval
             self.review_widgets[i] = {
                 "type": type_dropdown,
                 "base_model": base_model_dropdown,
@@ -154,19 +153,15 @@ class CustomDownloaderUI:
         
         self.layout_stage2.children = [header, *review_rows, confirm_button]
         
-        # Replace stage 1 UI with stage 2
         clear_output(wait=True)
         display(self.layout_stage2, self.output_area)
     
     def _on_confirm_clicked(self, b):
-        # ... This is where the AST file writing logic would go ...
         with self.output_area:
             clear_output(wait=True)
             print("Processing complete! The new models will be available in the main UI.")
             print("NOTE: AST file writing is a complex and destructive operation. For this demo, we are skipping the actual file modification.")
-            # In a real implementation, you would now call the AST writer functions.
         
-        # Finally, launch the main UI
         self.main_ui_launcher(None)
 
     def display(self):
