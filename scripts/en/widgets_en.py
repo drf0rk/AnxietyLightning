@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v20.3 - Review UI Display Debug)
+# /content/ANXETY/scripts/en/widgets_en.py (v20.4 - Review UI Explicit Display Fix)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -141,6 +141,7 @@ class AnxietyUI:
             print(f"Processing {len(self.url_pool)} URLs from the pool.")
             self._build_and_display_review_stage()
             b.description = "Next: Review & Categorize"; b.icon = "arrow-right"; b.disabled = False
+            # This print statement might not be visible if the UI immediately replaces the output area
             print("URL review process initiated. Please check the review panel.")
         
     def _build_and_display_review_stage(self):
@@ -183,8 +184,8 @@ class AnxietyUI:
             
             if not self.processed_data:
                 print("\n❌ No valid model data could be retrieved from the provided URLs. Please check URLs and try again.")
-                # Optionally return to initial view or display a message
-                self.layouts['main_output_area'].children = [self.layouts['initial_view']]
+                self.layouts['main_output_area'].children = [] # Clear any previous review UI elements
+                display(self.layouts['initial_view']) # Explicitly re-display the initial view if no data
                 return
 
 
@@ -286,7 +287,8 @@ class AnxietyUI:
             
             if not review_rows:
                 print("❌ No items were successfully prepared for the review stage. Returning to main menu.")
-                self.layouts['main_output_area'].children = [self.layouts['initial_view']]
+                self.layouts['main_output_area'].children = [] # Clear any previous review UI elements
+                display(self.layouts['initial_view']) # Explicitly re-display the initial view
                 return
 
             confirm_button = self.factory.create_button("Confirm & Add to Library", icon='check', class_names=['button_save'])
@@ -295,6 +297,8 @@ class AnxietyUI:
             
             # --- Key change: Set children of the main_output_area ---
             self.layouts['main_output_area'].children = [review_stage_layout]
+            # --- Added explicit display for main container after updating children ---
+            display(self.layouts['main_container']) # Ensure the container holding output area is displayed.
             
             print("Review panel displayed. Please categorize and confirm your selections.")
 
@@ -327,7 +331,11 @@ class AnxietyUI:
             time.sleep(2)
             self.url_pool = []; self.widgets['downloader_url_pool'].value = "" # Clear pool and textarea
             self._update_model_lists()
-            self.layouts['main_output_area'].children = [self.layouts['initial_view']]
+            
+            # Clear output area and return to initial view
+            clear_output(wait=True)
+            display(self.layouts['initial_view']) # Explicitly display initial view
+            
         b.description = "Confirm & Add to Library"; b.icon = "check"; b.disabled = False # Reset button state
 
 
@@ -473,7 +481,9 @@ class AnxietyUI:
             for p in [models_py_path, loras_py_path]:
                 if not p.exists(): 
                     print(f"    ⚠️ Data file not found: {p.name}. Skipping relevant model list update.", file=sys.stderr)
-                    return # Exit if critical data files are missing
+                    # If this is the only path in the loop, might need to re-evaluate error handling
+                    # For now, just print and continue.
+                    continue 
 
             models_data = runpy.run_path(str(models_py_path))
             loras_data = runpy.run_path(str(loras_py_path))
