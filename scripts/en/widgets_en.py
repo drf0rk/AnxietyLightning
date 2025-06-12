@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/widgets_en.py (v17.6 - Final Logging Fix)
+# /content/ANXETY/scripts/en/widgets_en.py (v17.7 - LoRA AST Fix)
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output, HTML
@@ -108,35 +108,24 @@ class AnxietyUI:
             self.widgets['downloader_url_pool'].options = self.url_pool
             self.widgets['downloader_url_input'].value = ""
 
-    # --- START OF LOGGING FIX v2 ---
     def _on_downloader_analyze_clicked(self, b):
         if not self.url_pool:
             with self.layouts['output_layout']:
                 clear_output(wait=True); print("⚠️ URL Pool is empty. Please add at least one URL.")
             return
-
         b.description = "Processing..."; b.icon = "spinner"; b.disabled = True
-        
-        # This function now handles its own output.
         self._process_urls_synchronously(self.url_pool)
-        
-        # Reset UI elements
         self.url_pool = []
         self.widgets['downloader_url_pool'].options = self.url_pool
         b.description = "Analyze & Add to Library"; b.icon = "cogs"; b.disabled = False
-        
-        # This 'with' block NO LONGER clears the output.
         with self.layouts['output_layout']:
             print("\n✅ Analysis complete! Refreshing model lists...")
         self._update_model_lists()
 
     def _process_urls_synchronously(self, urls):
-        # Clear the output area ONCE before the loop starts.
         with self.layouts['output_layout']:
             clear_output(wait=True)
             print("--- Analyzing URLs ---")
-
-        # Process each URL, and all output will be preserved.
         for url in urls:
             try:
                 with self.layouts['output_layout']:
@@ -144,15 +133,12 @@ class AnxietyUI:
                         data = self.api.get_data(url)
                         if data:
                             self._categorize_and_write(data)
-                        else:
-                            print(f"❌ Failed to retrieve data for Civitai URL: {url[:70]}...")
+                        else: print(f"❌ Failed to retrieve data for Civitai URL: {url[:70]}...")
                     elif "huggingface.co" in url:
                         self._categorize_and_write(self._get_huggingface_guesses(url))
                 time.sleep(0.2)
             except Exception as e:
-                with self.layouts['output_layout']:
-                    print(f"❌ An unexpected error occurred while processing {url}: {e}")
-    # --- END OF LOGGING FIX v2 ---
+                with self.layouts['output_layout']: print(f"❌ An unexpected error occurred while processing {url}: {e}")
 
     def _get_huggingface_guesses(self, url):
         filename = url.split('/')[-1].split('?')[0]
@@ -174,12 +160,8 @@ class AnxietyUI:
             target_file = ANXETY_ROOT / 'scripts' / '_loras-data.py'
             target_dict = 'sdxl_loras' if is_sdxl_type else 'sd15_loras'
         elif asset_type == 'Checkpoint':
-            if is_sdxl_type:
-                target_file = ANXETY_ROOT / 'scripts' / '_xl-models-data.py'
-                target_dict = 'sdxl_models_data'
-            else:
-                target_file = ANXETY_ROOT / 'scripts' / '_models-data.py'
-                target_dict = 'sd15_model_data'
+            target_file = ANXETY_ROOT / 'scripts' / ('_xl-models-data.py' if is_sdxl_type else '_models-data.py')
+            target_dict = 'sdxl_models_data' if is_sdxl_type else 'sd15_model_data'
         if not target_file or not target_dict:
             with self.layouts['output_layout']: print(f"⚠️ Could not categorize model '{data.get('model', {}).get('name')}'. Skipping.")
             return
@@ -196,24 +178,52 @@ class AnxietyUI:
         with open(file_path, 'r', encoding='utf-8') as f: source_code = f.read()
         tree = ast.parse(source_code)
         found_and_modified = False
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == dict_name:
-                        dict_node = node.value
-                        if isinstance(dict_node, ast.Dict):
-                            if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
-                                with self.layouts['output_layout']: print(f"ℹ️ Model '{new_entry['display_name']}' already exists. Skipping."); return
-                            key_node = ast.Constant(value=new_entry['display_name'])
-                            value_node = ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')],
-                                                values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])
-                            dict_node.keys.append(key_node)
-                            dict_node.values.append(value_node)
-                            found_and_modified = True
-                            break
-            if found_and_modified: break
+
+        # --- START OF LORA FIX ---
+        if file_path.name == '_loras-data.py':
+            # Special handling for the nested LoRA dictionary structure
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign) and node.targets[0].id == 'lora_data':
+                    # Find the correct sub-dictionary (sd15_loras or sdxl_loras)
+                    for i, key in enumerate(node.value.keys):
+                        if isinstance(key, ast.Constant) and key.value == dict_name:
+                            dict_node = node.value.values[i]
+                            if isinstance(dict_node, ast.Dict):
+                                if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
+                                    with self.layouts['output_layout']: print(f"ℹ️ LoRA '{new_entry['display_name']}' already exists. Skipping.")
+                                    found_and_modified = True; break
+                                
+                                key_node = ast.Constant(value=new_entry['display_name'])
+                                value_node = ast.List(elts=[ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')],
+                                                                    values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])])
+                                dict_node.keys.append(key_node)
+                                dict_node.values.append(value_node)
+                                found_and_modified = True
+                                break
+                    if found_and_modified: break
+        else:
+            # Original logic for flat dictionaries like models and VAEs
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name) and target.id == dict_name:
+                            dict_node = node.value
+                            if isinstance(dict_node, ast.Dict):
+                                if any(isinstance(k, ast.Constant) and k.value == new_entry['display_name'] for k in dict_node.keys):
+                                    with self.layouts['output_layout']: print(f"ℹ️ Model '{new_entry['display_name']}' already exists. Skipping."); return
+                                key_node = ast.Constant(value=new_entry['display_name'])
+                                value_node = ast.Dict(keys=[ast.Constant(value='url'), ast.Constant(value='name')],
+                                                    values=[ast.Constant(value=new_entry['url']), ast.Constant(value=new_entry['filename'])])
+                                dict_node.keys.append(key_node)
+                                dict_node.values.append(value_node)
+                                found_and_modified = True
+                                break
+                if found_and_modified: break
+        # --- END OF LORA FIX ---
+        
         if not found_and_modified:
-            with self.layouts['output_layout']: print(f"❌ Error: Could not find dictionary '{dict_name}' in {file_path}"); return
+            with self.layouts['output_layout']: print(f"❌ Error: Could not find or modify dictionary '{dict_name}' in {file_path}"); return
+
         new_source_code = ast.unparse(tree)
         with open(file_path, 'w', encoding='utf-8') as f: f.write(new_source_code)
         with self.layouts['output_layout']: print(f"✅ Successfully added '{new_entry['display_name']}' to {dict_name}.")
