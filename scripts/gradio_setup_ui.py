@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v5.1 - Final Correct Layout)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v5.2 - Final NameError Fix)
 
 import gradio as gr
 import sys
@@ -77,7 +77,7 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
     }
     settings_data = {
         'WIDGETS': {
-            'change_webui': webui_choice, 'XL_models': is_sdxl, 'model_list': selected_models or [],
+            'change_webui': webui_choice, 'sdxl_toggle': is_sdxl, 'model_list': selected_models or [],
             'vae_list': selected_vaes or [], 'lora_list': selected_loras or [], 'controlnet_list': selected_cnets or [],
             'commandline_arguments': launch_args or "", 'ngrok_token': ngrok_token or "", 'detailed_download': detailed_download
         }, 'ENVIRONMENT': {'home_path': '/content'}
@@ -119,6 +119,7 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"), css=MODERN_LOG_CSS) as demo:
     gr.Markdown("# AnxietyLightning Setup")
     
+    # Define all UI components first
     with gr.Tabs():
         with gr.TabItem("1. Setup & Asset Selection"):
             gr.Markdown("Configure your Stable Diffusion environment and select assets to download.")
@@ -145,6 +146,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
             output_log = gr.HTML(label="Live Log", elem_id="log_output_html")
 
     # --- 5. UI Interactions ---
+    # Now that all components are created, we can safely define the event handlers
+    
     def update_asset_choices(is_sdxl):
         models = sdxl_model_choices if is_sdxl else sd15_model_choices
         vaes = sdxl_vae_choices if is_sdxl else sd15_vae_choices
@@ -177,4 +180,5 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
         outputs=[output_log, download_progress]
     )
 
+# The demo.launch() call remains at the end of the script
 demo.launch(share=True, inline=False)
