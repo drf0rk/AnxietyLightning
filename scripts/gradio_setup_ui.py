@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v1.2 - Two-Tab Layout Draft)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v1.3 - Public Share Enabled)
 
 import gradio as gr
 import sys
@@ -20,7 +20,7 @@ if str(ANXETY_ROOT) not in sys.path:
 from modules import json_utils as js
 from modules.webui_utils import update_current_webui
 
-# --- Data Loading (Unchanged) ---
+# --- Data Loading ---
 try:
     sd15_data = runpy.run_path(str(ANXETY_ROOT / 'scripts/_models-data.py'))
     sdxl_data = runpy.run_path(str(ANXETY_ROOT / 'scripts/_xl-models-data.py'))
@@ -46,8 +46,7 @@ webui_selection_args = {
     'SD-UX': "--xformers --no-half-vae --enable-insecure-extension-access --disable-console-progressbars --theme dark"
 }
 
-# --- Core Logic Function (Unchanged) ---
-# This backend function remains the same, demonstrating the power of decoupling.
+# --- Core Logic Function ---
 def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selected_loras, selected_cnets, launch_args, ngrok_token, detailed_download):
     yield "✅ UI selections received. Saving settings..."
     settings_data = {
@@ -82,12 +81,11 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
     full_output += "\n--- ✅ Process Complete ---"
     yield full_output
 
-# --- Gradio UI Definition (v1.2 - Two-Tab Layout) ---
+# --- Gradio UI Definition ---
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"), css=".gradio-container {background-color: #1a1a1a; padding: 20px;}") as demo:
     gr.Markdown("# AnxietyLightning Setup")
     
     with gr.Tabs() as tabs:
-        # --- TAB 1: SETUP ---
         with gr.TabItem("1. Setup & Asset Selection", id=0):
             gr.Markdown("Configure your Stable Diffusion environment and select assets to download.")
             with gr.Row():
@@ -95,7 +93,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
                     webui_dropdown = gr.Dropdown(choices=['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX'], value='ReForge', label="Select WebUI")
                 with gr.Column(scale=1, min_width=200):
                     sdxl_toggle = gr.Checkbox(label="Use SDXL Models", value=False)
-
             with gr.Accordion("Asset Selection", open=True):
                 with gr.Row():
                     model_checkboxes = gr.CheckboxGroup(choices=sd15_model_choices, label="Checkpoints", interactive=True)
@@ -103,20 +100,18 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
                 with gr.Row():
                     lora_checkboxes = gr.CheckboxGroup(choices=sd15_lora_choices, label="LoRAs", interactive=True)
                     controlnet_checkboxes = gr.CheckboxGroup(choices=controlnet_choices, label="ControlNets", interactive=True)
-
             with gr.Accordion("Advanced Options", open=False):
                 args_textbox = gr.Textbox(label="Commandline Arguments", value=webui_selection_args['ReForge'], lines=2, interactive=True)
                 with gr.Row():
                     ngrok_textbox = gr.Textbox(label="NGROK Token (Optional)", type="password", scale=3)
                     detailed_dl_checkbox = gr.Checkbox(label="Show Detailed Download Logs", value=False, scale=1)
 
-        # --- TAB 2: LAUNCH ---
         with gr.TabItem("2. Launch & Live Log", id=1):
             gr.Markdown("Click the button to begin the setup process. Progress will be displayed below.")
             launch_button = gr.Button("Install, Download & Launch", variant="primary")
             output_log = gr.Textbox(label="Live Log", interactive=False, lines=25, max_lines=50)
 
-    # --- UI Interactions (Unchanged logic, just connecting to the new layout) ---
+    # --- UI Interactions ---
     def update_asset_choices(is_sdxl):
         models = sdxl_model_choices if is_sdxl else sd15_model_choices
         vaes = sdxl_vae_choices if is_sdxl else sd15_vae_choices
@@ -130,7 +125,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
         
     webui_dropdown.change(fn=update_args, inputs=webui_dropdown, outputs=args_textbox)
 
-    # The launch button now lives in the second tab, but the logic is identical.
     launch_button.click(
         fn=save_and_launch,
         inputs=[
@@ -141,4 +135,4 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
     )
 
 if __name__ == "__main__":
-    demo.launch(share=False)
+    demo.launch(share=True)
