@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v2.5 - Final Progress Bar API Fix)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v3.0 - Definitive Layout and Logic)
 
 import gradio as gr
 import sys
@@ -63,13 +63,18 @@ webui_selection_args = {
 # --- 3. Core Logic Function ---
 def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selected_loras, selected_cnets, launch_args, ngrok_token, detailed_download):
     progress_regex = re.compile(r"\((\d{1,3})%\)")
-    
-    # Send a single update to make the progress bar visible and start the process
+    def format_log_line(line):
+        line = html.escape(line)
+        if "---" in line: return f'<span class="log-line log-header">{line}</span>'
+        if "✅" in line: return f'<span class="log-line log-success">{line}</span>'
+        if "❌" in line: return f'<span class="log-line log-error">{line}</span>'
+        if "[#" in line and ("MiB/s" in line or "GiB/s" in line): return f'<span class="log-line log-download">{line}</span>'
+        return f'<span class="log-line">{line}</span>'
+
     yield {
-        output_log: "<span class='log-line log-success'>✅ UI selections received. Saving settings...</span>",
-        download_progress: gr.update(value=0, visible=True, every=0.5) # Use gr.update to control visibility
+        output_log: format_log_line("✅ UI selections received. Saving settings..."),
+        download_progress: gr.update(value=0, visible=True)
     }
-    
     settings_data = {
         'WIDGETS': {
             'change_webui': webui_choice, 'XL_models': is_sdxl, 'model_list': selected_models or [],
@@ -81,47 +86,42 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
     js.save(str(settings_path), 'WIDGETS', settings_data['WIDGETS'])
     js.save(str(settings_path), 'ENVIRONMENT', settings_data['ENVIRONMENT'])
     update_current_webui(webui_choice)
-    
-    full_html_output = "<span class='log-line log-success'>✅ Settings saved. Starting backend setup...</span>"
+    full_html_output = format_log_line("✅ Settings saved. Starting backend setup...")
     yield {output_log: full_html_output, download_progress: gr.update(visible=False)}
     time.sleep(1)
 
     scripts_to_run = [ANXETY_ROOT/'scripts'/'en'/'downloading-en.py', ANXETY_ROOT/'scripts'/'launch.py']
     for script_path in scripts_to_run:
-        full_html_output += f"<span class='log-line log-header'>--- 🚀 Running {script_path.name} ---</span>"
+        full_html_output += format_log_line(f"\n--- 🚀 Running {script_path.name} ---")
         yield {output_log: full_html_output, download_progress: gr.update(value=0, visible=False)}
-        
         try:
             process = subprocess.Popen([sys.executable, str(script_path)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
             for line in iter(process.stdout.readline, ''):
                 clean_line = line.strip()
-                progress_update = gr.update() # Default to no change
-                
+                progress_update = gr.update()
                 match = progress_regex.search(clean_line)
                 if match:
                     percent = int(match.group(1)) / 100.0
                     progress_update = gr.update(value=percent, visible=True)
-                
                 if "Download Results" in clean_line or "Status Legend" in clean_line:
                     progress_update = gr.update(visible=False)
-                
-                full_html_output += f"<span class='log-line log-download'>{html.escape(clean_line)}</span>"
+                full_html_output += format_log_line(clean_line)
                 yield {output_log: full_html_output, download_progress: progress_update}
-
             process.wait()
         except Exception as e:
-             full_html_output += f"<span class='log-line log-error'>--- ❌ CRITICAL FAILURE: {e} ---</span>"
+             full_html_output += format_log_line(f"--- ❌ CRITICAL FAILURE: {e} ---")
              yield {output_log: full_html_output, download_progress: gr.update(visible=False)}
              break
-            
-    full_html_output += "<span class='log-line log-success'>--- ✅ Process Complete ---</span>"
+    full_html_output += format_log_line("\n--- ✅ Process Complete ---")
     yield {output_log: full_html_output, download_progress: gr.update(visible=False)}
 
 # --- 4. Gradio UI Definition ---
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"), css=MODERN_LOG_CSS) as demo:
     gr.Markdown("# AnxietyLightning Setup")
+    
     with gr.Tabs():
         with gr.TabItem("1. Setup & Asset Selection"):
+            gr.Markdown("Configure your Stable Diffusion environment and select assets to download.")
             with gr.Row():
                 webui_dropdown = gr.Dropdown(choices=['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX'], value='ReForge', label="Select WebUI")
                 sdxl_toggle = gr.Checkbox(label="Use SDXL Models", value=False)
@@ -140,7 +140,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
 
         with gr.TabItem("2. Launch & Live Log"):
             gr.Markdown("Click the button to begin the setup process. Progress will be displayed below.")
-            # THIS IS THE FIX: No arguments are passed during creation.
             download_progress = gr.Progress()
             launch_button = gr.Button("Install, Download & Launch", variant="primary")
             output_log = gr.HTML(label="Live Log", elem_id="log_output_html")
@@ -152,10 +151,16 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
         loras = sdxl_lora_choices if is_sdxl else sd15_lora_choices
         cnets = sdxl_controlnet_choices if is_sdxl else sd15_controlnet_choices
         return [gr.update(choices=models, value=[]), gr.update(choices=vaes, value=[]), gr.update(choices=loras, value=[]), gr.update(choices=cnets, value=[])]
-    sdxl_toggle.change(fn=update_asset_choices, inputs=sdxl_toggle, outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes])
+    
+    sdxl_toggle.change(
+        fn=update_asset_choices,
+        inputs=sdxl_toggle,
+        outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes]
+    )
     
     def update_args(webui_choice):
         return gr.update(value=webui_selection_args.get(webui_choice, ""))
+        
     webui_dropdown.change(fn=update_args, inputs=webui_dropdown, outputs=args_textbox)
     
     launch_button.click(
