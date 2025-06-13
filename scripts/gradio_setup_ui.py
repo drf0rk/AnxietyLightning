@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v1.8 - Enhanced Logging & UI Logic)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v1.9 - Definitive Structure Fix)
 
 import gradio as gr
 import sys
@@ -10,49 +10,19 @@ import time
 import html
 
 # --- 1. CSS for Modern Logging and UI Styling ---
-# This is the "Export" of the style. You can copy this block.
 MODERN_LOG_CSS = """
 <style>
-#log_output_html {
-    background-color: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 12px;
-    font-family: 'Monaco', 'Consolas', 'Menlo', monospace;
-    color: #c9d1d9;
-    height: 400px; /* Or adjust as needed */
-    overflow-y: auto; /* Enable scrolling */
-}
-#log_output_html .log-line {
-    display: block;
-    animation: fadeIn 0.5s ease-in-out;
-}
-#log_output_html .log-header {
-    color: #58a6ff;
-    font-weight: bold;
-    margin-top: 15px;
-    margin-bottom: 5px;
-    text-shadow: 0 0 5px rgba(88, 166, 255, 0.3);
-}
-#log_output_html .log-success {
-    color: #3fb950;
-}
-#log_output_html .log-error {
-    color: #f85149;
-    font-weight: bold;
-}
-#log_output_html .log-download {
-    color: #8b949e;
-    font-size: 0.85em;
-}
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(5px); }
-    to { opacity: 1; transform: translateY(0); }
-}
+#log_output_html { background-color: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px; font-family: 'Monaco', 'Consolas', 'Menlo', monospace; color: #c9d1d9; height: 400px; overflow-y: auto; }
+#log_output_html .log-line { display: block; animation: fadeIn 0.5s ease-in-out; }
+#log_output_html .log-header { color: #58a6ff; font-weight: bold; margin-top: 15px; margin-bottom: 5px; text-shadow: 0 0 5px rgba(88, 166, 255, 0.3); }
+#log_output_html .log-success { color: #3fb950; }
+#log_output_html .log-error { color: #f85149; font-weight: bold; }
+#log_output_html .log-download { color: #8b949e; font-size: 0.85em; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 """
 
-# --- 2. Pathing, Imports, and Data Loading (Unchanged) ---
+# --- 2. Pathing, Imports, and Data Loading ---
 try:
     ANXETY_ROOT = Path(__file__).resolve().parents[1]
 except NameError:
@@ -91,23 +61,16 @@ webui_selection_args = {
     'SD-UX': "--xformers --no-half-vae --enable-insecure-extension-access --disable-console-progressbars --theme dark"
 }
 
-# --- 3. Core Logic Function (Modified for HTML Logging) ---
+# --- 3. Core Logic Function ---
 def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selected_loras, selected_cnets, launch_args, ngrok_token, detailed_download):
-    
-    # Helper to format log lines into HTML
     def format_log_line(line):
         line = html.escape(line)
-        if "---" in line:
-            return f'<span class="log-line log-header">{line}</span>'
-        elif "✅" in line:
-            return f'<span class="log-line log-success">{line}</span>'
-        elif "❌" in line:
-            return f'<span class="log-line log-error">{line}</span>'
-        elif "[#" in line and ("MiB/s" in line or "GiB/s" in line):
-             return f'<span class="log-line log-download">{line}</span>'
+        if "---" in line: return f'<span class="log-line log-header">{line}</span>'
+        if "✅" in line: return f'<span class="log-line log-success">{line}</span>'
+        if "❌" in line: return f'<span class="log-line log-error">{line}</span>'
+        if "[#" in line and ("MiB/s" in line or "GiB/s" in line): return f'<span class="log-line log-download">{line}</span>'
         return f'<span class="log-line">{line}</span>'
 
-    # Initial setup
     yield format_log_line("✅ UI selections received. Saving settings...")
     settings_data = {
         'WIDGETS': {
@@ -125,7 +88,6 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
     yield full_html_output
     time.sleep(1)
 
-    # Execute backend scripts
     scripts_to_run = [ANXETY_ROOT/'scripts'/'en'/'downloading-en.py', ANXETY_ROOT/'scripts'/'launch.py']
     for script_path in scripts_to_run:
         full_html_output += format_log_line(f"\n--- 🚀 Running {script_path.name} ---")
@@ -141,54 +103,40 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
                 full_html_output += format_log_line(f"--- ❌ ERROR: {script_path.name} exited with code {process.returncode} ---"); yield full_html_output; break
         except Exception as e:
             full_html_output += format_log_line(f"--- ❌ CRITICAL FAILURE running {script_path.name}: {e} ---"); yield full_html_output; break
-            
     full_html_output += format_log_line("\n--- ✅ Process Complete ---")
     yield full_html_output
 
-# --- 4. Gradio UI Definition (The "Exportable" Layout) ---
+# --- 4. Gradio UI Definition ---
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"), css=MODERN_LOG_CSS) as demo:
+    # --- Define ALL components first ---
     gr.Markdown("# AnxietyLightning Setup")
-    
     with gr.Tabs():
-        with gr.TabItem("1. Setup & Asset Selection", id=0):
-            # ... (Layout is the same)
-            with gr.Row():
-                webui_dropdown = gr.Dropdown(choices=['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX'], value='ReForge', label="Select WebUI")
-                sdxl_toggle = gr.Checkbox(label="Use SDXL Models", value=False)
-            with gr.Accordion("Asset Selection", open=True):
-                with gr.Row():
-                    model_checkboxes = gr.CheckboxGroup(choices=sd15_model_choices, label="Checkpoints", interactive=True)
-                    vae_checkboxes = gr.CheckboxGroup(choices=sd15_vae_choices, label="VAEs", interactive=True)
-                with gr.Row():
-                    lora_checkboxes = gr.CheckboxGroup(choices=sd15_lora_choices, label="LoRAs", interactive=True)
-                    controlnet_checkboxes = gr.CheckboxGroup(choices=sd15_controlnet_choices, label="ControlNets", interactive=True)
-            with gr.Accordion("Advanced Options", open=False):
-                args_textbox = gr.Textbox(label="Commandline Arguments", value=webui_selection_args['ReForge'], lines=2, interactive=True)
-                with gr.Row():
-                    ngrok_textbox = gr.Textbox(label="NGROK Token", type="password", scale=3)
-                    detailed_dl_checkbox = gr.Checkbox(label="Detailed Logs", value=False, scale=1)
+        with gr.TabItem("1. Setup & Asset Selection"):
+            webui_dropdown = gr.Dropdown(choices=['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX'], value='ReForge', label="Select WebUI")
+            sdxl_toggle = gr.Checkbox(label="Use SDXL Models", value=False)
+            model_checkboxes = gr.CheckboxGroup(choices=sd15_model_choices, label="Checkpoints", interactive=True)
+            vae_checkboxes = gr.CheckboxGroup(choices=sd15_vae_choices, label="VAEs", interactive=True)
+            lora_checkboxes = gr.CheckboxGroup(choices=sd15_lora_choices, label="LoRAs", interactive=True)
+            controlnet_checkboxes = gr.CheckboxGroup(choices=sd15_controlnet_choices, label="ControlNets", interactive=True)
+            args_textbox = gr.Textbox(label="Commandline Arguments", value=webui_selection_args['ReForge'], lines=2, interactive=True)
+            ngrok_textbox = gr.Textbox(label="NGROK Token", type="password")
+            detailed_dl_checkbox = gr.Checkbox(label="Detailed Logs", value=False)
 
-        with gr.TabItem("2. Launch & Live Log", id=1):
-            gr.Markdown("Click the button to begin the setup process. Progress will be displayed below.")
+        with gr.TabItem("2. Launch & Live Log"):
             launch_button = gr.Button("Install, Download & Launch", variant="primary")
-            # Changed to gr.HTML for styled output
             output_log = gr.HTML(label="Live Log", elem_id="log_output_html")
 
-    # --- 5. UI Interactions (Corrected Logic) ---
+    # --- Setup ALL interactions and event handlers AFTER defining components ---
     def update_asset_choices(is_sdxl):
         models = sdxl_model_choices if is_sdxl else sd15_model_choices
         vaes = sdxl_vae_choices if is_sdxl else sd15_vae_choices
         loras = sdxl_lora_choices if is_sdxl else sd15_lora_choices
-        # FIX: Also update ControlNets
         cnets = sdxl_controlnet_choices if is_sdxl else sd15_controlnet_choices
         return [
-            gr.update(choices=models, value=[]),
-            gr.update(choices=vaes, value=[]),
-            gr.update(choices=loras, value=[]),
-            gr.update(choices=cnets, value=[]) # Reset selection
+            gr.update(choices=models, value=[]), gr.update(choices=vaes, value=[]),
+            gr.update(choices=loras, value=[]), gr.update(choices=cnets, value=[])
         ]
 
-    # FIX: Added controlnet_checkboxes to the outputs list
     sdxl_toggle.change(
         fn=update_asset_choices,
         inputs=sdxl_toggle,
