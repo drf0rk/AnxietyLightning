@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v3.1 - Correct Layout and Logic)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v5.0 - Final Stable Architecture)
 
 import gradio as gr
 import sys
@@ -117,62 +117,67 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
 
 # --- 4. Gradio UI Definition ---
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"), css=MODERN_LOG_CSS) as demo:
+    # --- Step 1: Define ALL components that will be used in event handlers ---
+    webui_dropdown = gr.Dropdown(choices=['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX'], value='ReForge', label="Select WebUI")
+    sdxl_toggle = gr.Checkbox(label="Use SDXL Models", value=False)
+    model_checkboxes = gr.CheckboxGroup(choices=sd15_model_choices, label="Checkpoints", interactive=True)
+    vae_checkboxes = gr.CheckboxGroup(choices=sd15_vae_choices, label="VAEs", interactive=True)
+    lora_checkboxes = gr.CheckboxGroup(choices=sd15_lora_choices, label="LoRAs", interactive=True)
+    controlnet_checkboxes = gr.CheckboxGroup(choices=sd15_controlnet_choices, label="ControlNets", interactive=True)
+    args_textbox = gr.Textbox(label="Commandline Arguments", value=webui_selection_args['ReForge'], lines=2, interactive=True)
+    ngrok_textbox = gr.Textbox(label="NGROK Token", type="password")
+    detailed_dl_checkbox = gr.Checkbox(label="Detailed Logs", value=False)
+    download_progress = gr.Progress()
+    launch_button = gr.Button("Install, Download & Launch", variant="primary")
+    output_log = gr.HTML(label="Live Log", elem_id="log_output_html")
+
+    # --- Step 2: Build the visual layout using the variables defined above ---
     gr.Markdown("# AnxietyLightning Setup")
-    
     with gr.Tabs():
         with gr.TabItem("1. Setup & Asset Selection"):
             gr.Markdown("Configure your Stable Diffusion environment and select assets to download.")
             with gr.Row():
-                webui_dropdown = gr.Dropdown(choices=['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX'], value='ReForge', label="Select WebUI")
-                sdxl_toggle = gr.Checkbox(label="Use SDXL Models", value=False)
+                webui_dropdown.render()
+                sdxl_toggle.render()
             with gr.Accordion("Asset Selection", open=True):
                 with gr.Row():
-                    model_checkboxes = gr.CheckboxGroup(choices=sd15_model_choices, label="Checkpoints", interactive=True)
-                    vae_checkboxes = gr.CheckboxGroup(choices=sd15_vae_choices, label="VAEs", interactive=True)
+                    model_checkboxes.render()
+                    vae_checkboxes.render()
                 with gr.Row():
-                    lora_checkboxes = gr.CheckboxGroup(choices=sd15_lora_choices, label="LoRAs", interactive=True)
-                    controlnet_checkboxes = gr.CheckboxGroup(choices=sd15_controlnet_choices, label="ControlNets", interactive=True)
+                    lora_checkboxes.render()
+                    controlnet_checkboxes.render()
             with gr.Accordion("Advanced Options", open=False):
-                args_textbox = gr.Textbox(label="Commandline Arguments", value=webui_selection_args['ReForge'], lines=2, interactive=True)
+                args_textbox.render()
                 with gr.Row():
-                    ngrok_textbox = gr.Textbox(label="NGROK Token", type="password", scale=3)
-                    detailed_dl_checkbox = gr.Checkbox(label="Detailed Logs", value=False, scale=1)
-
+                    ngrok_textbox.render()
+                    detailed_dl_checkbox.render()
         with gr.TabItem("2. Launch & Live Log"):
             gr.Markdown("Click the button to begin the setup process. Progress will be displayed below.")
-            download_progress = gr.Progress()
-            launch_button = gr.Button("Install, Download & Launch", variant="primary")
-            output_log = gr.HTML(label="Live Log", elem_id="log_output_html")
+            download_progress.render()
+            launch_button.render()
+            output_log.render()
 
-    # --- 5. UI Interactions ---
+    # --- Step 3: Define all event handlers at the end ---
     def update_asset_choices(is_sdxl):
         models = sdxl_model_choices if is_sdxl else sd15_model_choices
         vaes = sdxl_vae_choices if is_sdxl else sd15_vae_choices
         loras = sdxl_lora_choices if is_sdxl else sd15_lora_choices
         cnets = sdxl_controlnet_choices if is_sdxl else sd15_controlnet_choices
         return [
-            gr.update(choices=models, value=[]),
-            gr.update(choices=vaes, value=[]),
-            gr.update(choices=loras, value=[]),
-            gr.update(choices=cnets, value=[])
+            gr.update(choices=models, value=[]), gr.update(choices=vaes, value=[]),
+            gr.update(choices=loras, value=[]), gr.update(choices=cnets, value=[])
         ]
-    
-    sdxl_toggle.change(
-        fn=update_asset_choices,
-        inputs=sdxl_toggle,
-        outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes]
-    )
+    sdxl_toggle.change(fn=update_asset_choices, inputs=sdxl_toggle, outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes])
     
     def update_args(webui_choice):
         return gr.update(value=webui_selection_args.get(webui_choice, ""))
-        
     webui_dropdown.change(fn=update_args, inputs=webui_dropdown, outputs=args_textbox)
     
     launch_button.click(
         fn=save_and_launch,
         inputs=[
             webui_dropdown, sdxl_toggle, model_checkboxes, vae_checkboxes,
-            loras_checkboxes, controlnet_checkboxes, args_textbox, ngrok_textbox, detailed_dl_checkbox
+            lora_checkboxes, controlnet_checkboxes, args_textbox, ngrok_textbox, detailed_dl_checkbox
         ],
         outputs=[output_log, download_progress]
     )
