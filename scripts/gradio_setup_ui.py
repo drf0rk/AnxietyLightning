@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v5.6 - Decoupled Progress Bar Fix)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v5.7 - Final Label Argument Fix)
 
 import gradio as gr
 import sys
@@ -94,8 +94,8 @@ with gr.Blocks(theme=gr.themes.Soft(), css=MODERN_LOG_CSS) as demo:
                     detailed_dl_checkbox = gr.Checkbox(label="Detailed Logs", value=False, scale=1)
                     
         with gr.TabItem("2. Launch & Live Log"):
-            # VISIBLE progress bar and INVISIBLE number for state
-            download_progress = gr.Progress(label="Download Progress")
+            # CORRECTED LINE: Removed the invalid 'label' argument
+            download_progress = gr.Progress()
             hidden_progress_number = gr.Number(value=0, visible=False)
             
             launch_button = gr.Button("Install, Download & Launch", variant="primary")
@@ -108,21 +108,18 @@ with gr.Blocks(theme=gr.themes.Soft(), css=MODERN_LOG_CSS) as demo:
     
     def update_args(webui_choice): return gr.update(value=webui_selection_args.get(webui_choice, ""))
     
-    # NEW linking event handler
     def update_progress_bar(progress_value):
         return gr.update(value=progress_value, visible=True if progress_value > 0 else False)
 
     sdxl_toggle.change(fn=update_asset_choices, inputs=sdxl_toggle, outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes])
     webui_dropdown.change(fn=update_args, inputs=webui_dropdown, outputs=args_textbox)
     
-    # The main launch button now outputs to the hidden number component
     launch_button.click(
         fn=save_and_launch, 
         inputs=[webui_dropdown, sdxl_toggle, model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes, args_textbox, ngrok_textbox, detailed_dl_checkbox], 
-        outputs=[output_log, hidden_progress_number] # Output to log and HIDDEN number
+        outputs=[output_log, hidden_progress_number]
     )
     
-    # The hidden number's change event updates the VISIBLE progress bar
     hidden_progress_number.change(
         fn=update_progress_bar,
         inputs=hidden_progress_number,
