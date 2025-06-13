@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v1.3 - Public Share Enabled)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v1.4 - Final Indentation & Launch Fix)
 
 import gradio as gr
 import sys
@@ -86,6 +86,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
     gr.Markdown("# AnxietyLightning Setup")
     
     with gr.Tabs() as tabs:
+        # --- TAB 1: SETUP ---
         with gr.TabItem("1. Setup & Asset Selection", id=0):
             gr.Markdown("Configure your Stable Diffusion environment and select assets to download.")
             with gr.Row():
@@ -93,6 +94,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
                     webui_dropdown = gr.Dropdown(choices=['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX'], value='ReForge', label="Select WebUI")
                 with gr.Column(scale=1, min_width=200):
                     sdxl_toggle = gr.Checkbox(label="Use SDXL Models", value=False)
+
             with gr.Accordion("Asset Selection", open=True):
                 with gr.Row():
                     model_checkboxes = gr.CheckboxGroup(choices=sd15_model_choices, label="Checkpoints", interactive=True)
@@ -100,12 +102,14 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
                 with gr.Row():
                     lora_checkboxes = gr.CheckboxGroup(choices=sd15_lora_choices, label="LoRAs", interactive=True)
                     controlnet_checkboxes = gr.CheckboxGroup(choices=controlnet_choices, label="ControlNets", interactive=True)
+
             with gr.Accordion("Advanced Options", open=False):
                 args_textbox = gr.Textbox(label="Commandline Arguments", value=webui_selection_args['ReForge'], lines=2, interactive=True)
                 with gr.Row():
                     ngrok_textbox = gr.Textbox(label="NGROK Token (Optional)", type="password", scale=3)
                     detailed_dl_checkbox = gr.Checkbox(label="Show Detailed Download Logs", value=False, scale=1)
 
+        # --- TAB 2: LAUNCH ---
         with gr.TabItem("2. Launch & Live Log", id=1):
             gr.Markdown("Click the button to begin the setup process. Progress will be displayed below.")
             launch_button = gr.Button("Install, Download & Launch", variant="primary")
@@ -129,10 +133,10 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
         fn=save_and_launch,
         inputs=[
             webui_dropdown, sdxl_toggle, model_checkboxes, vae_checkboxes,
-            lora_checkboxes, controlnet_checkboxes, args_textbox, ngrok_textbox, detailed_dl_checkbox
+            loras_checkboxes, controlnet_checkboxes, args_textbox, ngrok_textbox, detailed_dl_checkbox
         ],
         outputs=output_log
     )
 
-if __name__ == "__main__":
-    demo.launch(share=True)
+# Launch the Gradio app. This will run whenever the script is executed.
+demo.launch(share=True)
