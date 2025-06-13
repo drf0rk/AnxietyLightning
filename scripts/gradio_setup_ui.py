@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v1.5 - Corrected UI Interaction)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v1.6 - Corrected Execution Order)
 
 import gradio as gr
 import sys
@@ -83,6 +83,7 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
 
 # --- Gradio UI Definition ---
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"), css=".gradio-container {background-color: #1a1a1a; padding: 20px;}") as demo:
+    # --- Define ALL components first ---
     gr.Markdown("# AnxietyLightning Setup")
     
     with gr.Tabs() as tabs:
@@ -93,6 +94,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
                     webui_dropdown = gr.Dropdown(choices=['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX'], value='ReForge', label="Select WebUI")
                 with gr.Column(scale=1, min_width=200):
                     sdxl_toggle = gr.Checkbox(label="Use SDXL Models", value=False)
+
             with gr.Accordion("Asset Selection", open=True):
                 with gr.Row():
                     model_checkboxes = gr.CheckboxGroup(choices=sd15_model_choices, label="Checkpoints", interactive=True)
@@ -100,6 +102,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
                 with gr.Row():
                     lora_checkboxes = gr.CheckboxGroup(choices=sd15_lora_choices, label="LoRAs", interactive=True)
                     controlnet_checkboxes = gr.CheckboxGroup(choices=controlnet_choices, label="ControlNets", interactive=True)
+
             with gr.Accordion("Advanced Options", open=False):
                 args_textbox = gr.Textbox(label="Commandline Arguments", value=webui_selection_args['ReForge'], lines=2, interactive=True)
                 with gr.Row():
@@ -111,15 +114,14 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
             launch_button = gr.Button("Install, Download & Launch", variant="primary")
             output_log = gr.Textbox(label="Live Log", interactive=False, lines=25, max_lines=50)
 
-    # --- UI Interactions (Corrected) ---
+    # --- Setup ALL interactions and event handlers AFTER defining components ---
+    
     def update_asset_choices(is_sdxl):
         models = sdxl_model_choices if is_sdxl else sd15_model_choices
         vaes = sdxl_vae_choices if is_sdxl else sd15_vae_choices
         loras = sdxl_lora_choices if is_sdxl else sd15_lora_choices
-        # This now returns a list of update objects, which is the correct format.
         return [gr.update(choices=models, value=[]), gr.update(choices=vaes, value=[]), gr.update(choices=loras, value=[])]
 
-    # The .change() call now correctly points to all three output components by their variable names.
     sdxl_toggle.change(
         fn=update_asset_choices,
         inputs=sdxl_toggle,
@@ -135,7 +137,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
         fn=save_and_launch,
         inputs=[
             webui_dropdown, sdxl_toggle, model_checkboxes, vae_checkboxes,
-            loras_checkboxes, controlnet_checkboxes, args_textbox, ngrok_textbox, detailed_dl_checkbox
+            lora_checkboxes, controlnet_checkboxes, args_textbox, ngrok_textbox, detailed_dl_checkbox
         ],
         outputs=output_log
     )
