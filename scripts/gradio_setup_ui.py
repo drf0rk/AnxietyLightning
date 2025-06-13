@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v2.4 - Removed Progress Label)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v2.5 - Final Progress Bar API Fix)
 
 import gradio as gr
 import sys
@@ -63,11 +63,13 @@ webui_selection_args = {
 # --- 3. Core Logic Function ---
 def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selected_loras, selected_cnets, launch_args, ngrok_token, detailed_download):
     progress_regex = re.compile(r"\((\d{1,3})%\)")
-    progress = gr.Progress(0, visible=False)
+    
+    # Send a single update to make the progress bar visible and start the process
     yield {
-        output_log: "✅ UI selections received. Saving settings...",
-        download_progress: progress
+        output_log: "<span class='log-line log-success'>✅ UI selections received. Saving settings...</span>",
+        download_progress: gr.update(value=0, visible=True, every=0.5) # Use gr.update to control visibility
     }
+    
     settings_data = {
         'WIDGETS': {
             'change_webui': webui_choice, 'XL_models': is_sdxl, 'model_list': selected_models or [],
@@ -79,32 +81,41 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
     js.save(str(settings_path), 'WIDGETS', settings_data['WIDGETS'])
     js.save(str(settings_path), 'ENVIRONMENT', settings_data['ENVIRONMENT'])
     update_current_webui(webui_choice)
+    
     full_html_output = "<span class='log-line log-success'>✅ Settings saved. Starting backend setup...</span>"
-    yield {output_log: full_html_output, download_progress: progress}
+    yield {output_log: full_html_output, download_progress: gr.update(visible=False)}
     time.sleep(1)
+
     scripts_to_run = [ANXETY_ROOT/'scripts'/'en'/'downloading-en.py', ANXETY_ROOT/'scripts'/'launch.py']
     for script_path in scripts_to_run:
         full_html_output += f"<span class='log-line log-header'>--- 🚀 Running {script_path.name} ---</span>"
-        yield {output_log: full_html_output, download_progress: gr.Progress(0, visible=False)}
+        yield {output_log: full_html_output, download_progress: gr.update(value=0, visible=False)}
+        
         try:
             process = subprocess.Popen([sys.executable, str(script_path)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
             for line in iter(process.stdout.readline, ''):
                 clean_line = line.strip()
+                progress_update = gr.update() # Default to no change
+                
                 match = progress_regex.search(clean_line)
                 if match:
                     percent = int(match.group(1)) / 100.0
-                    progress = gr.Progress(percent, "Downloading...", visible=True)
+                    progress_update = gr.update(value=percent, visible=True)
+                
                 if "Download Results" in clean_line or "Status Legend" in clean_line:
-                    progress = gr.Progress(0, visible=False)
+                    progress_update = gr.update(visible=False)
+                
                 full_html_output += f"<span class='log-line log-download'>{html.escape(clean_line)}</span>"
-                yield {output_log: full_html_output, download_progress: progress}
+                yield {output_log: full_html_output, download_progress: progress_update}
+
             process.wait()
         except Exception as e:
              full_html_output += f"<span class='log-line log-error'>--- ❌ CRITICAL FAILURE: {e} ---</span>"
-             yield {output_log: full_html_output, download_progress: gr.Progress(0, visible=False)}
+             yield {output_log: full_html_output, download_progress: gr.update(visible=False)}
              break
+            
     full_html_output += "<span class='log-line log-success'>--- ✅ Process Complete ---</span>"
-    yield {output_log: full_html_output, download_progress: gr.Progress(0, visible=False)}
+    yield {output_log: full_html_output, download_progress: gr.update(visible=False)}
 
 # --- 4. Gradio UI Definition ---
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"), css=MODERN_LOG_CSS) as demo:
@@ -129,8 +140,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
 
         with gr.TabItem("2. Launch & Live Log"):
             gr.Markdown("Click the button to begin the setup process. Progress will be displayed below.")
-            # THIS IS THE FIX: The 'label' argument is removed.
-            download_progress = gr.Progress(visible=False)
+            # THIS IS THE FIX: No arguments are passed during creation.
+            download_progress = gr.Progress()
             launch_button = gr.Button("Install, Download & Launch", variant="primary")
             output_log = gr.HTML(label="Live Log", elem_id="log_output_html")
 
@@ -140,18 +151,13 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
         vaes = sdxl_vae_choices if is_sdxl else sd15_vae_choices
         loras = sdxl_lora_choices if is_sdxl else sd15_lora_choices
         cnets = sdxl_controlnet_choices if is_sdxl else sd15_controlnet_choices
-        return [
-            gr.update(choices=models, value=[]), gr.update(choices=vaes, value=[]),
-            gr.update(choices=loras, value=[]), gr.update(choices=cnets, value=[])
-        ]
-    sdxl_toggle.change(
-        fn=update_asset_choices,
-        inputs=sdxl_toggle,
-        outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes]
-    )
+        return [gr.update(choices=models, value=[]), gr.update(choices=vaes, value=[]), gr.update(choices=loras, value=[]), gr.update(choices=cnets, value=[])]
+    sdxl_toggle.change(fn=update_asset_choices, inputs=sdxl_toggle, outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes])
+    
     def update_args(webui_choice):
         return gr.update(value=webui_selection_args.get(webui_choice, ""))
     webui_dropdown.change(fn=update_args, inputs=webui_dropdown, outputs=args_textbox)
+    
     launch_button.click(
         fn=save_and_launch,
         inputs=[
