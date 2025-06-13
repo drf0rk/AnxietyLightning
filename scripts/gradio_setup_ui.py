@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v3.0 - Definitive Layout and Logic)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v3.1 - Correct Layout and Logic)
 
 import gradio as gr
 import sys
@@ -10,7 +10,7 @@ import time
 import html
 import re
 
-# --- 1. CSS for Modern Logging and UI Styling ---
+# --- 1. CSS ---
 MODERN_LOG_CSS = """
 <style>
 #log_output_html { background-color: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px; font-family: 'Monaco', 'Consolas', 'Menlo', monospace; color: #c9d1d9; height: 400px; overflow-y: auto; }
@@ -150,7 +150,12 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
         vaes = sdxl_vae_choices if is_sdxl else sd15_vae_choices
         loras = sdxl_lora_choices if is_sdxl else sd15_lora_choices
         cnets = sdxl_controlnet_choices if is_sdxl else sd15_controlnet_choices
-        return [gr.update(choices=models, value=[]), gr.update(choices=vaes, value=[]), gr.update(choices=loras, value=[]), gr.update(choices=cnets, value=[])]
+        return [
+            gr.update(choices=models, value=[]),
+            gr.update(choices=vaes, value=[]),
+            gr.update(choices=loras, value=[]),
+            gr.update(choices=cnets, value=[])
+        ]
     
     sdxl_toggle.change(
         fn=update_asset_choices,
