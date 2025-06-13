@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v5.7 - Final Label Argument Fix)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v5.8 - Accordion Progress Fix)
 
 import gradio as gr
 import sys
@@ -41,7 +41,7 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
         if "[#" in line and ("MiB/s" in line or "GiB/s" in line): return f'<span class="log-line log-download">{line}</span>'
         return f'<span class="log-line">{line}</span>'
 
-    yield (format_log_line("✅ UI selections received. Saving settings..."), 0.0)
+    yield (format_log_line("✅ UI selections received. Saving settings..."), gr.update(label="Status: Saving Settings..."))
     
     settings_data = {'WIDGETS':{'change_webui':webui_choice,'sdxl_toggle':is_sdxl,'model_list':selected_models or [],'vae_list':selected_vaes or [],'lora_list':selected_loras or [],'controlnet_list':selected_cnets or [],'commandline_arguments':launch_args or "",'ngrok_token':ngrok_token or "",'detailed_download':detailed_download},'ENVIRONMENT':{'home_path':'/content'}}
     settings_path = ANXETY_ROOT / 'settings.json'
@@ -50,29 +50,31 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
     update_current_webui(webui_choice)
     full_html_output = format_log_line("✅ Settings saved. Starting backend setup...")
     
-    yield (full_html_output, 0.0)
+    yield (full_html_output, gr.update(label="Status: Starting Backend..."))
     time.sleep(1)
 
     scripts_to_run = [ANXETY_ROOT/'scripts'/'en'/'downloading-en.py', ANXETY_ROOT/'scripts'/'launch.py']
     for script_path in scripts_to_run:
         full_html_output += format_log_line(f"\n--- 🚀 Running {script_path.name} ---")
-        yield (full_html_output, 0.0)
+        yield (full_html_output, gr.update(label=f"Status: Running {script_path.name}..."))
         try:
             process = subprocess.Popen([sys.executable, str(script_path)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
             for line in iter(process.stdout.readline, ''):
                 clean_line = line.strip()
-                current_progress = 0.0
+                accordion_update = gr.update()
                 if match := progress_regex.search(clean_line):
-                    current_progress = int(match.group(1)) / 100.0
+                    percent = int(match.group(1))
+                    accordion_update = gr.update(label=f"Status: Downloading Assets... {percent}%")
+                
                 full_html_output += format_log_line(clean_line)
-                yield (full_html_output, current_progress)
+                yield (full_html_output, accordion_update)
             process.wait()
         except Exception as e:
              full_html_output += format_log_line(f"--- ❌ CRITICAL FAILURE: {e} ---")
-             yield (full_html_output, 0.0)
+             yield (full_html_output, gr.update(label="Status: ❌ CRITICAL FAILURE"))
              break
     full_html_output += format_log_line("\n--- ✅ Process Complete ---")
-    yield (full_html_output, 0.0)
+    yield (full_html_output, gr.update(label="Status: ✅ Process Complete"))
 
 with gr.Blocks(theme=gr.themes.Soft(), css=MODERN_LOG_CSS) as demo:
     with gr.Tabs():
@@ -94,12 +96,10 @@ with gr.Blocks(theme=gr.themes.Soft(), css=MODERN_LOG_CSS) as demo:
                     detailed_dl_checkbox = gr.Checkbox(label="Detailed Logs", value=False, scale=1)
                     
         with gr.TabItem("2. Launch & Live Log"):
-            # CORRECTED LINE: Removed the invalid 'label' argument
-            download_progress = gr.Progress()
-            hidden_progress_number = gr.Number(value=0, visible=False)
-            
             launch_button = gr.Button("Install, Download & Launch", variant="primary")
-            output_log = gr.HTML(label="Live Log", elem_id="log_output_html")
+            # The log is now nested inside an accordion, which we will update
+            with gr.Accordion("Live Log", open=True) as log_accordion:
+                output_log = gr.HTML(label="Live Log", elem_id="log_output_html")
 
     # --- UI Interactions ---
     def update_asset_choices(is_sdxl):
@@ -108,22 +108,14 @@ with gr.Blocks(theme=gr.themes.Soft(), css=MODERN_LOG_CSS) as demo:
     
     def update_args(webui_choice): return gr.update(value=webui_selection_args.get(webui_choice, ""))
     
-    def update_progress_bar(progress_value):
-        return gr.update(value=progress_value, visible=True if progress_value > 0 else False)
-
     sdxl_toggle.change(fn=update_asset_choices, inputs=sdxl_toggle, outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes])
     webui_dropdown.change(fn=update_args, inputs=webui_dropdown, outputs=args_textbox)
     
+    # The launch button now outputs to the log AND the accordion
     launch_button.click(
         fn=save_and_launch, 
         inputs=[webui_dropdown, sdxl_toggle, model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes, args_textbox, ngrok_textbox, detailed_dl_checkbox], 
-        outputs=[output_log, hidden_progress_number]
-    )
-    
-    hidden_progress_number.change(
-        fn=update_progress_bar,
-        inputs=hidden_progress_number,
-        outputs=download_progress
+        outputs=[output_log, log_accordion]
     )
 
 demo.launch(share=True, inline=False)
