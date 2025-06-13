@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/gradio_setup_ui.py (v2.3 - Graphical Progress Bar)
+# /content/ANXETY/scripts/gradio_setup_ui.py (v2.4 - Removed Progress Label)
 
 import gradio as gr
 import sys
@@ -8,10 +8,9 @@ import subprocess
 import shlex
 import time
 import html
-import re # Import the regular expression module
+import re
 
 # --- 1. CSS for Modern Logging and UI Styling ---
-# (CSS is unchanged)
 MODERN_LOG_CSS = """
 <style>
 #log_output_html { background-color: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px; font-family: 'Monaco', 'Consolas', 'Menlo', monospace; color: #c9d1d9; height: 400px; overflow-y: auto; }
@@ -24,7 +23,7 @@ MODERN_LOG_CSS = """
 </style>
 """
 
-# --- 2. Pathing, Imports, and Data Loading (Unchanged) ---
+# --- 2. Pathing, Imports, and Data Loading ---
 try:
     ANXETY_ROOT = Path(__file__).resolve().parents[1]
 except NameError:
@@ -40,12 +39,10 @@ try:
     sd15_data = runpy.run_path(str(ANXETY_ROOT / 'scripts/_models-data.py'))
     sdxl_data = runpy.run_path(str(ANXETY_ROOT / 'scripts/_xl-models-data.py'))
     loras_data_full = runpy.run_path(str(ANXETY_ROOT / 'scripts/_loras-data.py'))
-
     sd15_model_choices = list(sd15_data.get('sd15_model_data', {}).keys())
     sd15_vae_choices = list(sd15_data.get('sd15_vae_data', {}).keys())
     sd15_controlnet_choices = list(sd15_data.get('controlnet_list', {}).keys())
     sd15_lora_choices = list(loras_data_full.get('lora_data', {}).get('sd15_loras', {}).keys())
-    
     sdxl_model_choices = list(sdxl_data.get('sdxl_models_data', {}).keys())
     sdxl_vae_choices = list(sdxl_data.get('sdxl_vae_data', {}).keys())
     sdxl_controlnet_choices = list(sdxl_data.get('controlnet_list', {}).keys())
@@ -63,20 +60,14 @@ webui_selection_args = {
     'SD-UX': "--xformers --no-half-vae --enable-insecure-extension-access --disable-console-progressbars --theme dark"
 }
 
-# --- 3. Core Logic Function (Modified for Progress Bar) ---
+# --- 3. Core Logic Function ---
 def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selected_loras, selected_cnets, launch_args, ngrok_token, detailed_download):
-    # This regular expression will find percentages like (3%) or (100%)
     progress_regex = re.compile(r"\((\d{1,3})%\)")
-    
-    # We need to yield updates for both the HTML log and the Progress bar
-    # A dummy initial progress update to pass to the function
     progress = gr.Progress(0, visible=False)
     yield {
         output_log: "✅ UI selections received. Saving settings...",
         download_progress: progress
     }
-
-    # (Settings saving logic is unchanged)
     settings_data = {
         'WIDGETS': {
             'change_webui': webui_choice, 'XL_models': is_sdxl, 'model_list': selected_models or [],
@@ -88,51 +79,38 @@ def save_and_launch(webui_choice, is_sdxl, selected_models, selected_vaes, selec
     js.save(str(settings_path), 'WIDGETS', settings_data['WIDGETS'])
     js.save(str(settings_path), 'ENVIRONMENT', settings_data['ENVIRONMENT'])
     update_current_webui(webui_choice)
-    
     full_html_output = "<span class='log-line log-success'>✅ Settings saved. Starting backend setup...</span>"
     yield {output_log: full_html_output, download_progress: progress}
     time.sleep(1)
-
-    # Execute backend scripts
     scripts_to_run = [ANXETY_ROOT/'scripts'/'en'/'downloading-en.py', ANXETY_ROOT/'scripts'/'launch.py']
     for script_path in scripts_to_run:
         full_html_output += f"<span class='log-line log-header'>--- 🚀 Running {script_path.name} ---</span>"
-        yield {output_log: full_html_output, download_progress: gr.Progress(0, visible=False)} # Reset/hide progress for new script
-        
+        yield {output_log: full_html_output, download_progress: gr.Progress(0, visible=False)}
         try:
             process = subprocess.Popen([sys.executable, str(script_path)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
             for line in iter(process.stdout.readline, ''):
                 clean_line = line.strip()
-                
-                # Check for progress percentage
                 match = progress_regex.search(clean_line)
                 if match:
                     percent = int(match.group(1)) / 100.0
                     progress = gr.Progress(percent, "Downloading...", visible=True)
-                
-                # Hide the progress bar after download completion
                 if "Download Results" in clean_line or "Status Legend" in clean_line:
                     progress = gr.Progress(0, visible=False)
-                
                 full_html_output += f"<span class='log-line log-download'>{html.escape(clean_line)}</span>"
                 yield {output_log: full_html_output, download_progress: progress}
-
             process.wait()
         except Exception as e:
              full_html_output += f"<span class='log-line log-error'>--- ❌ CRITICAL FAILURE: {e} ---</span>"
              yield {output_log: full_html_output, download_progress: gr.Progress(0, visible=False)}
              break
-            
     full_html_output += "<span class='log-line log-success'>--- ✅ Process Complete ---</span>"
     yield {output_log: full_html_output, download_progress: gr.Progress(0, visible=False)}
 
-# --- 4. Gradio UI Definition (with Progress Bar) ---
+# --- 4. Gradio UI Definition ---
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"), css=MODERN_LOG_CSS) as demo:
     gr.Markdown("# AnxietyLightning Setup")
-    
     with gr.Tabs():
         with gr.TabItem("1. Setup & Asset Selection"):
-            # ... Layout is the same as before
             with gr.Row():
                 webui_dropdown = gr.Dropdown(choices=['ReForge', 'Forge', 'A1111', 'ComfyUI', 'Classic', 'SD-UX'], value='ReForge', label="Select WebUI")
                 sdxl_toggle = gr.Checkbox(label="Use SDXL Models", value=False)
@@ -151,32 +129,35 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="purple", secondary_hue="blue"),
 
         with gr.TabItem("2. Launch & Live Log"):
             gr.Markdown("Click the button to begin the setup process. Progress will be displayed below.")
-            # ADD the progress bar component here
-            download_progress = gr.Progress(label="Download Progress", visible=False)
+            # THIS IS THE FIX: The 'label' argument is removed.
+            download_progress = gr.Progress(visible=False)
             launch_button = gr.Button("Install, Download & Launch", variant="primary")
             output_log = gr.HTML(label="Live Log", elem_id="log_output_html")
 
     # --- 5. UI Interactions ---
-    # (Unchanged)
     def update_asset_choices(is_sdxl):
         models = sdxl_model_choices if is_sdxl else sd15_model_choices
         vaes = sdxl_vae_choices if is_sdxl else sd15_vae_choices
         loras = sdxl_lora_choices if is_sdxl else sd15_lora_choices
         cnets = sdxl_controlnet_choices if is_sdxl else sd15_controlnet_choices
-        return [gr.update(choices=models, value=[]), gr.update(choices=vaes, value=[]), gr.update(choices=loras, value=[]), gr.update(choices=cnets, value=[])]
-    sdxl_toggle.change(fn=update_asset_choices, inputs=sdxl_toggle, outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes])
-    
+        return [
+            gr.update(choices=models, value=[]), gr.update(choices=vaes, value=[]),
+            gr.update(choices=loras, value=[]), gr.update(choices=cnets, value=[])
+        ]
+    sdxl_toggle.change(
+        fn=update_asset_choices,
+        inputs=sdxl_toggle,
+        outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes]
+    )
     def update_args(webui_choice):
         return gr.update(value=webui_selection_args.get(webui_choice, ""))
     webui_dropdown.change(fn=update_args, inputs=webui_dropdown, outputs=args_textbox)
-
     launch_button.click(
         fn=save_and_launch,
         inputs=[
             webui_dropdown, sdxl_toggle, model_checkboxes, vae_checkboxes,
             loras_checkboxes, controlnet_checkboxes, args_textbox, ngrok_textbox, detailed_dl_checkbox
         ],
-        # The 'outputs' now needs to target both the log and the progress bar
         outputs=[output_log, download_progress]
     )
 
