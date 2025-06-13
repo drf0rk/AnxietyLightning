@@ -25,6 +25,9 @@ from modules import json_utils as js
 from modules.webui_utils import update_current_webui
 
 # --- NO DATA LOADING AT SCRIPT STARTUP ---
+# This is the key change to prevent the startup hang.
+# All data will now be loaded on demand by Gradio events.
+
 webui_selection_args = {'A1111':"--xformers --no-half-vae",'Forge':"--disable-xformers --opt-sdp-attention",'ReForge':"--xformers --cuda-stream",'Classic':"--persistent-patches --cuda-stream",'ComfyUI':"--use-sage-attention",'SD-UX':"--xformers --no-half-vae"}
 MODERN_LOG_CSS="""<style>#log_output_html{background-color:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;font-family:'Monaco','Consolas','Menlo',monospace;color:#c9d1d9;height:400px;overflow-y:auto}#log_output_html .log-line{display:block;animation:fadeIn .5s ease-in-out}#log_output_html .log-header{color:#58a6ff;font-weight:700;margin-top:15px;margin-bottom:5px;text-shadow:0 0 5px rgba(88,166,255,.3)}#log_output_html .log-success{color:#3fb950}#log_output_html .log-error{color:#f85149;font-weight:700}#log_output_html .log-url{color:#9e87ff;font-weight:700}#log_output_html .log-download{color:#8b949e;font-size:.85em}@keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}</style>"""
 
@@ -85,6 +88,7 @@ with gr.Blocks(theme=gr.themes.Soft(), css=MODERN_LOG_CSS) as demo:
                 sdxl_toggle = gr.Checkbox(label="Use SDXL Models", value=False)
             with gr.Accordion("Asset Selection", open=True):
                 with gr.Row():
+                    # Initialize with empty choices for a fast launch
                     model_checkboxes = gr.CheckboxGroup(choices=[], label="Checkpoints", interactive=True)
                     vae_checkboxes = gr.CheckboxGroup(choices=[], label="VAEs", interactive=True)
                 with gr.Row():
@@ -112,17 +116,19 @@ with gr.Blocks(theme=gr.themes.Soft(), css=MODERN_LOG_CSS) as demo:
     
     def update_args(webui_choice): return gr.update(value=webui_selection_args.get(webui_choice, ""))
     
+    # --- Event Wiring ---
     sdxl_toggle.change(fn=update_asset_choices, inputs=sdxl_toggle, outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes])
     webui_dropdown.change(fn=update_args, inputs=webui_dropdown, outputs=args_textbox)
     launch_button.click(fn=save_and_launch, inputs=[webui_dropdown, sdxl_toggle, model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes, args_textbox, ngrok_textbox, detailed_dl_checkbox], outputs=[output_log, log_accordion])
     
-    # Use demo.load to populate the initial data AFTER the UI is live.
+    # THE FIX: Use demo.load to populate the initial data AFTER the UI is live.
     demo.load(fn=update_asset_choices, inputs=[sdxl_toggle], outputs=[model_checkboxes, vae_checkboxes, lora_checkboxes, controlnet_checkboxes])
 
 if __name__ == "__main__":
     logger.info("Gradio script starting...")
     ngrok_token_from_arg = sys.argv[1] if len(sys.argv) > 1 else ""
     if ngrok_token_from_arg:
+        # Pre-save the token to settings.json so it's available to the UI components
         js.save(str(ANXETY_ROOT / 'settings.json'), 'WIDGETS.ngrok_token', ngrok_token_from_arg)
         logger.info("NGROK token received from command line and pre-saved.")
     
