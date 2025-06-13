@@ -1,4 +1,4 @@
-# /content/ANXETY/modules/Manager.py (VENV Download Robustness)
+# /content/ANXETY/modules/Manager.py (Curl for VENVs, Aria2c for others)
 
 import os
 import sys
@@ -10,7 +10,7 @@ import zipfile
 import shlex
 import re
 import json
-import time # For retries
+import time
 
 # --- Self-aware pathing ---
 try:
@@ -25,10 +25,8 @@ if str(ANXETY_ROOT_MANAGER) not in sys.path:
 from modules.CivitaiAPI import CivitAiAPI
 import modules.json_utils as js
 
-# --- Constants ---
 SETTINGS_PATH_IN_MANAGER = ANXETY_ROOT_MANAGER / 'settings.json'
 
-# --- Structured Logger for Manager.py ---
 def log_manager(level, message, data=None):
     log_entry = {"type": "log", "level": level, "message": message, "data": data or {}}
     print(json.dumps(log_entry), flush=True)
@@ -43,7 +41,7 @@ def handle_errors_manager(func):
         try: return func(*args, **kwargs)
         except Exception as e:
             log_manager('error', f"Manager Error in {func.__name__}: {e}", data={'args': args, 'kwargs': kwargs})
-            return None # Or False for functions expecting a boolean success
+            return False # Explicitly return False on error for download functions
     return wrapper
 
 @handle_errors_manager
@@ -68,7 +66,7 @@ def clean_url_manager(url):
 @handle_errors_manager
 def m_download(line, log=False, unzip=False):
     parts = shlex.split(line)
-    if not parts: return False # Indicate failure
+    if not parts: return False
     
     url_original = parts[0]
     current_home_path = Path(js.read(SETTINGS_PATH_IN_MANAGER, 'ENVIRONMENT.home_path', str(Path.home())))
@@ -87,83 +85,73 @@ def m_download(line, log=False, unzip=False):
             filename_to_use = original_suffix_name
 
     original_cwd = Path.cwd()
+    download_successful = False
     try:
         dst_dir.mkdir(parents=True, exist_ok=True)
-        os.chdir(dst_dir) # Change to target directory for aria2c
         
-        _, hf_token = get_tokens_manager()
-        
-        # Base aria2c command arguments
-        aria2_base_args = [
-            'aria2c',
-            '--allow-overwrite=true',
-            '--stderr=true',
-            '-c', '-x16', '-s16', '-k1M', '-j5',
-            '--summary-interval=1',
-            '--console-log-level=warn',
-            # Removed -d and -o, as we chdir to dst_dir and aria2c will use filename from URL
-        ]
+        # --- STRATEGY CHANGE: Use curl for VENV files, aria2c for others ---
+        is_venv_download = "python31017-venv" in filename_to_use or "python31112-venv" in filename_to_use
 
-        # Add headers - crucial for Hugging Face
-        headers = [
-            '--header="User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"',
-            '--header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"',
-            '--header="Accept-Language: en-US,en;q=0.9"',
-            '--header="Connection: keep-alive"',
-        ]
-        aria2_command_with_headers = aria2_base_args + headers
-
-        if hf_token and 'huggingface.co' in clean_url_val:
-            aria2_command_with_headers.append(f'--header="Authorization: Bearer {hf_token}"')
-        
-        # Add output filename and URL at the end
-        aria2_command_full = aria2_command_with_headers + [f'-o', filename_to_use, clean_url_val]
-
-        progress_pattern = re.compile(r"\[#[a-f0-9]+\s+([0-9.]+)([GMKiB]+)/([0-9.]+)([GMKiB]+)\s*\((\d+)%\)[^\]]*DL:([0-9.]+)([GMKiB]+)[^\]]*\]")
-        
-        max_retries = 2 # Try original + 2 retries
-        for attempt in range(max_retries + 1):
-            log_manager('info', f"Starting download (Attempt {attempt + 1}/{max_retries + 1}): {filename_to_use}")
-            
-            # Use shlex.join for safety if constructing command string, or pass list directly
-            process = subprocess.Popen(aria2_command_full, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
-            
-            last_progress_line = ""
-            for Rline in iter(process.stdout.readline, ''):
-                Rline = Rline.strip()
-                if not Rline: continue
-
-                match = progress_pattern.search(Rline)
-                if match:
-                    percentage = match.group(5)
-                    # Update last_progress_line to simulate overwriting for the log
-                    last_progress_line = f"Downloading {filename_to_use} ({percentage}%) - {Rline}"
-                    log_manager('progress', last_progress_line, data={'percentage': int(percentage), 'raw_line': Rline})
-                elif log: # Only print non-progress lines if verbose logging is on
-                    log_manager('debug', Rline)
-            
-            process.wait()
+        if is_venv_download:
+            log_manager('info', f"Using curl for VENV download: {filename_to_use}")
+            curl_command = ["curl", "-L", "-o", str(dst_dir / filename_to_use), clean_url_val]
+            # For curl, we can't easily get iterative progress in the same way as aria2c for the Gradio log,
+            # but we can show start/finish. The notebook cell can show basic curl progress.
+            log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 0, 'raw_line': 'curl started'})
+            process = subprocess.run(curl_command, capture_output=True, text=True)
             if process.returncode == 0:
-                log_manager('success', f"✅ Download complete: {filename_to_use}")
-                if unzip and filename_to_use.endswith('.zip'):
-                    log_manager('info', f"Unzipping {filename_to_use}...")
-                    with zipfile.ZipFile(filename_to_use, 'r') as zip_ref:
-                        zip_ref.extractall() # Extracts to current dir (dst_dir)
-                    os.remove(filename_to_use)
-                    log_manager('success', f"✅ Unzipped and removed {filename_to_use}.")
-                return True # Success
+                log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 100, 'raw_line': 'curl finished'})
+                download_successful = True
             else:
-                log_manager('error', f"Download attempt {attempt + 1} failed for {filename_to_use}. aria2c exited with {process.returncode}.")
-                if attempt < max_retries:
-                    log_manager('info', "Retrying in 5 seconds...")
-                    time.sleep(5)
+                log_manager('error', f"curl download failed for {filename_to_use}. Error: {process.stderr}")
+                download_successful = False
+        else:
+            # Use aria2c for non-VENV files
+            os.chdir(dst_dir) # aria2c works best when in the target dir
+            _, hf_token = get_tokens_manager()
+            aria2_base_args = ['aria2c','--allow-overwrite=true','--stderr=true','-c','-x16','-s16','-k1M','-j5','--summary-interval=1','--console-log-level=warn']
+            headers = ['--header="User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"','--header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"','--header="Accept-Language: en-US,en;q=0.9"','--header="Connection: keep-alive"']
+            aria2_command_with_headers = aria2_base_args + headers
+            if hf_token and 'huggingface.co' in clean_url_val:
+                aria2_command_with_headers.append(f'--header="Authorization: Bearer {hf_token}"')
+            aria2_command_full = aria2_command_with_headers + [f'-o', filename_to_use, clean_url_val]
+            
+            progress_pattern = re.compile(r"\[#[a-f0-9]+\s+([0-9.]+)([GMKiB]+)/([0-9.]+)([GMKiB]+)\s*\((\d+)%\)[^\]]*DL:([0-9.]+)([GMKiB]+)[^\]]*\]")
+            max_retries = 2
+            for attempt in range(max_retries + 1):
+                log_manager('info', f"Starting download (Attempt {attempt + 1}/{max_retries + 1}): {filename_to_use}")
+                process = subprocess.Popen(aria2_command_full, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
+                for Rline in iter(process.stdout.readline, ''):
+                    Rline = Rline.strip();
+                    if not Rline: continue
+                    if match := progress_pattern.search(Rline):
+                        log_manager('progress', f"Downloading {filename_to_use}", data={'percentage': int(match.group(5)), 'raw_line': Rline})
+                    elif log: log_manager('debug', Rline)
+                process.wait()
+                if process.returncode == 0: download_successful = True; break
                 else:
-                    log_manager('error', f"All download attempts failed for {filename_to_use}.")
-                    return False # All retries failed
+                    log_manager('error', f"aria2c attempt {attempt + 1} failed for {filename_to_use}. Exit code: {process.returncode}.")
+                    if attempt < max_retries: time.sleep(5)
+                    else: log_manager('error', f"All aria2c attempts failed for {filename_to_use}.")
+            os.chdir(original_cwd) # Change back CWD
 
+        if download_successful:
+            log_manager('success', f"✅ Download complete: {dst_dir / filename_to_use}")
+            if unzip and filename_to_use.endswith('.zip'):
+                log_manager('info', f"Unzipping {filename_to_use}...")
+                with zipfile.ZipFile(dst_dir / filename_to_use, 'r') as zip_ref:
+                    zip_ref.extractall(dst_dir)
+                os.remove(dst_dir / filename_to_use)
+                log_manager('success', f"✅ Unzipped and removed {filename_to_use}.")
+            return True
+        else:
+            return False
+            
     finally:
-        os.chdir(original_cwd)
-    return False # Should not be reached if logic is correct
+        if Path.cwd() != original_cwd: # Ensure we always return to original CWD
+            os.chdir(original_cwd)
+    return download_successful
+
 
 def m_clone(command, log_param=False):
     try:
