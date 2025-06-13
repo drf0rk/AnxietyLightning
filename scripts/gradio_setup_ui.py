@@ -16,7 +16,14 @@ import logging
 ANXETY_ROOT = Path('/content/ANXETY')
 LOG_DIR = ANXETY_ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s', handlers=[logging.FileHandler(LOG_DIR / "gradio_launch.log", mode='w'), logging.StreamHandler(sys.stdout)])
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(levelname)s - %(asctime)s] %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_DIR / "gradio_launch.log", mode='w'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # --- Imports & Setup ---
@@ -43,7 +50,6 @@ def _format_log_entry(log_entry):
     return f'<span class="log-line log-{level}">{message}</span>'
 
 def _stream_backend_script(script_path, initial_html=""):
-    progress_regex = re.compile(r"\((\d{1,3})%\)")
     full_html_output = initial_html
     try:
         process = subprocess.Popen([sys.executable, str(script_path)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
@@ -51,7 +57,6 @@ def _stream_backend_script(script_path, initial_html=""):
             clean_line = line.strip()
             if not clean_line: continue
             
-            current_progress = 0.0
             accordion_update = gr.update()
             
             try:
@@ -59,8 +64,8 @@ def _stream_backend_script(script_path, initial_html=""):
                 log_entry = json.loads(clean_line)
                 full_html_output += _format_log_entry(log_entry)
                 if log_entry.get('level') == 'progress':
-                    current_progress = log_entry.get('data', {}).get('percentage', 0.0)
-                    accordion_update = gr.update(label=f"Status: {log_entry.get('message', 'Downloading...')} {int(current_progress*100)}%")
+                    percentage = log_entry.get('data', {}).get('percentage', 0)
+                    accordion_update = gr.update(label=f"Status: {log_entry.get('message', 'Downloading...')} {percentage}%")
             except json.JSONDecodeError:
                 # Fallback for plain text lines
                 full_html_output += f'<span class="log-line">{html.escape(clean_line)}</span>'
@@ -103,7 +108,7 @@ with gr.Blocks(theme=gr.themes.Soft(), css=MODERN_LOG_CSS) as demo:
                 sdxl_toggle = gr.Checkbox(label="Use SDXL Models", value=False)
             with gr.Accordion("Asset Selection", open=True):
                 with gr.Row():
-                    model_checkboxes = gr.CheckboxGroup(choices=[], label="Checkpoints", interactive=True) # Initially empty
+                    model_checkboxes = gr.CheckboxGroup(choices=[], label="Checkpoints", interactive=True)
                     vae_checkboxes = gr.CheckboxGroup(choices=[], label="VAEs", interactive=True)
                 with gr.Row():
                     lora_checkboxes = gr.CheckboxGroup(choices=[], label="LoRAs", interactive=True)
@@ -151,9 +156,10 @@ if __name__ == "__main__":
     logger.info("Gradio script starting...")
     ngrok_token_from_arg = sys.argv[1] if len(sys.argv) > 1 else ""
     if ngrok_token_from_arg:
-        # This part is a bit tricky with Gradio's structure. For now, we rely on writing it.
-        # A more advanced version might pass it via JavaScript.
+        # We write this to the settings file before the UI fully loads.
+        # This ensures it's available if the user launches immediately.
+        # The UI will also display this value in the textbox.
         js.save(str(ANXETY_ROOT / 'settings.json'), 'WIDGETS.ngrok_token', ngrok_token_from_arg)
-        logger.info("NGROK token received from command line.")
+        logger.info("NGROK token received from command line and pre-saved.")
 
     demo.launch(share=True, inline=False)
