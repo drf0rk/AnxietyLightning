@@ -1,30 +1,36 @@
-# /content/ANXETY/scripts/startup.py (v2.0 - With Gradio Manager Launch Option)
+# /content/ANXETY/scripts/startup.py (v2.3 - Absolute sys.path and Forced Reloads)
 
-import ipywidgets as widgets
-from IPython.display import display, clear_output, HBox
 import sys
 from pathlib import Path
 import importlib
+import ipywidgets as widgets # Keep ipywidgets here for HBox and Layout
+from IPython.display import display, clear_output
+from ipywidgets import HBox # HBox comes from ipywidgets
 
-# Ensure ANXETY_ROOT is correctly set for relative imports
+# --- Ensure ANXETY_ROOT and its subdirectories are in sys.path at the very beginning ---
+# This is crucial for all relative imports to work correctly from the project root.
 ANXETY_ROOT = Path('/content/ANXETY')
-if str(ANXETY_ROOT) not in sys.path:
-    sys.path.insert(0, str(ANXETY_ROOT))
-if str(ANXETY_ROOT / 'scripts' / 'en') not in sys.path:
-    sys.path.insert(0, str(ANXETY_ROOT / 'scripts' / 'en'))
+
+# Ensure these specific directories are at the start of sys.path
+# This makes Python look here first for modules.
 if str(ANXETY_ROOT / 'modules') not in sys.path:
     sys.path.insert(0, str(ANXETY_ROOT / 'modules'))
+if str(ANXETY_ROOT / 'scripts') not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT / 'scripts'))
+if str(ANXETY_ROOT / 'scripts' / 'en') not in sys.path:
+    sys.path.insert(0, str(ANXETY_ROOT / 'scripts' / 'en'))
+if str(ANXETY_ROOT) not in sys.path: # Add root as well, but lower priority than specific subfolders
+    sys.path.insert(0, str(ANXETY_ROOT))
 
-# Import necessary modules from the project
-from modules.widget_factory import WidgetFactory
+
+# Import necessary modules from the project AFTER sys.path adjustments
+from modules.widget_factory import WidgetFactory # This import should now reliably find the module
 
 # Define instances as global to persist them across button clicks if needed
 main_ui_instance = None
-gradio_manager_instance = None # To hold the Gradio app instance if we need to manage it
+gradio_manager_instance = None 
 
 # --- Import Gradio Manager (do not run it directly here) ---
-# We'll import the module, and then in the launch function, we'll call its .launch() method.
-# This import needs to be here so the `gradio_manager` module is available.
 import scripts.gradio_manager as gm_module
 
 def launch_main_ui(b=None):
@@ -49,22 +55,10 @@ def launch_gradio_manager_ui(b=None):
     print("🚀 Launching Gradio Model Manager. Please wait for the public URL...")
     print("This Gradio app will run in the background. You can close this tab and return to the notebook.")
     
-    # Gradio apps launch in a new process or thread typically
-    # We will simply call the launch method of the Gradio Blocks instance from the module.
-    # The gradio_manager.py script itself should handle `if __name__ == "__main__": demo.launch(...)`
-    # So we just need to ensure the module is reloaded and its main launch point is called.
-    
-    # Reload the gradio_manager module to pick up latest changes
+    # Force reload the gradio_manager module to pick up latest changes from disk
     importlib.reload(gm_module)
     
-    # Call the launch method of the Gradio app defined in gradio_manager.py
-    # This assumes 'demo' is the name of the gr.Blocks instance in gradio_manager.py
-    # and its .launch() method is intended to be called this way.
-    # The `launch` function in gradio_manager.py should be designed to be callable.
     try:
-        # Assuming gradio_manager.py has a function like `run_gradio_app()` that launches it
-        # Or, if it has `if __name__ == "__main__": demo.launch(...)`, just importing might start it.
-        # However, for explicit control, it's better to have a dedicated function in gm_module.
         print("Calling gm_module.demo.launch()...")
         gm_module.demo.launch(debug=True, share=True, quiet=False) # This starts the Gradio server
         print("Gradio Manager launched. Check for public URL above.")
@@ -75,7 +69,9 @@ def launch_gradio_manager_ui(b=None):
 
 # --- Main Execution: Create and Display Buttons ---
 if __name__ == "__main__":
-    factory = WidgetFactory()
+    # Force reload widget_factory to ensure it's not a stale version or from a wrong path
+    importlib.reload(sys.modules['modules.widget_factory']) # Reload the already imported module
+    factory = WidgetFactory() 
     
     launch_main_button = factory.create_button("Go to Main WebUI Setup", icon='rocket')
     launch_main_button.on_click(launch_main_ui)
