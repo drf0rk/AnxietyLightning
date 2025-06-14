@@ -51,7 +51,7 @@ COLAB_CONTENT_PATH = Path(env_settings.get('home_path', '/content'))
 VENV_PYTHON_EXECUTABLE = COLAB_CONTENT_PATH / "venv" / "bin" / "python3"
 
 UI = widget_settings.get('change_webui', 'Forge')
-WEBUI_PATH = COLAB_CONTENT_PATH / UI 
+WEBUI_PATH = COLAB_CONTENT_PATH / UI
 commandline_arguments = widget_settings.get('commandline_arguments', '')
 ngrok_token = widget_settings.get('ngrok_token')
 
@@ -87,18 +87,27 @@ def get_launch_command():
 if __name__ == '__main__':
     log('info', 'Please Wait, Launching WebUI and Tunnels...')
     
-    if not WEBUI_PATH.exists():
-        log('error', f"FATAL ERROR: WebUI directory not found at {WEBUI_PATH}. This usually means the downloading-en.py script failed."); sys.exit(1)
+    # --- Resilient WebUI Path Handling ---
+    # The "happy path" - the archive was well-structured with a top-level folder.
+    if WEBUI_PATH.exists() and WEBUI_PATH.is_dir():
+        log('info', f"Standard WebUI directory found at: {WEBUI_PATH}")
+        os.chdir(WEBUI_PATH)
+    # The "fallback path" - the archive dumped its contents directly into /content.
+    elif (COLAB_CONTENT_PATH / 'launch.py').exists():
+        log('warning', f"Standard WebUI directory not found. Falling back to parent directory: {COLAB_CONTENT_PATH}")
+        WEBUI_PATH = COLAB_CONTENT_PATH
+        os.chdir(WEBUI_PATH)
+    # If neither path is valid, then it's a true failure.
+    else:
+        log('error', f"FATAL ERROR: Could not find a valid WebUI launch script at the expected path ({WEBUI_PATH}) or in the fallback path ({(COLAB_CONTENT_PATH / 'launch.py')}). Download or extraction likely failed."); sys.exit(1)
 
-    os.chdir(WEBUI_PATH) 
-    
     tunnel_port = 8188 if UI == 'ComfyUI' else 7860
     tunnels_to_launch = [
-        {'name':'Gradio','cmd':f"{sys.executable} {ANXETY_ROOT_BACKEND/'__configs__'/'gradio-tunneling.py'} {tunnel_port}",'log_file':LOG_DIR/"gradio.log",'pattern':re.compile(r'https://[\\w-]+\\.gradio\\.live')},
-        {'name':'Cloudflare','cmd':f"cloudflared tunnel --url http://localhost:{tunnel_port}",'log_file':LOG_DIR/"cloudflare.log",'pattern':re.compile(r'https://[a-zA-Z0-9.-]+\\.trycloudflare\\.com')}
+        {'name':'Gradio','cmd':f"{sys.executable} {ANXETY_ROOT_BACKEND/'__configs__'/'gradio-tunneling.py'} {tunnel_port}",'log_file':LOG_DIR/"gradio.log",'pattern':re.compile(r'https://[\\\\w-]+\\\\.gradio\\\\.live')},
+        {'name':'Cloudflare','cmd':f"cloudflared tunnel --url http://localhost:{tunnel_port}",'log_file':LOG_DIR/"cloudflare.log",'pattern':re.compile(r'https://[a-zA-Z0-9.-]+\\\\.trycloudflare\\\\.com')}
     ]
     if ngrok_token:
-        tunnels_to_launch.append({'name':'Ngrok','cmd':f"ngrok http {tunnel_port} --authtoken={ngrok_token} --log=stdout",'log_file':LOG_DIR/"ngrok.log",'pattern':re.compile(r'https://[a-zA-Z0-9.-]+\\.ngrok-free\\.app')})
+        tunnels_to_launch.append({'name':'Ngrok','cmd':f"ngrok http {tunnel_port} --authtoken={ngrok_token} --log=stdout",'log_file':LOG_DIR/"ngrok.log",'pattern':re.compile(r'https://[a-zA-Z0-9.-]+\\\\.ngrok-free\\\\.app')})
     
     for tunnel in tunnels_to_launch:
         log('info', f"🚀 Launching {tunnel['name']} tunnel...")
@@ -110,7 +119,7 @@ if __name__ == '__main__':
     
     webui_output_log_file = LOG_DIR / f"{UI}_launch_output.log"
     with open(webui_output_log_file, 'wb') as webui_log_handle:
-        subprocess.Popen(LAUNCHER_COMMAND_LIST, stdout=webui_log_handle, stderr=subprocess.STDOUT, cwd=WEBUI_PATH) 
+        subprocess.Popen(LAUNCHER_COMMAND_LIST, stdout=webui_log_handle, stderr=subprocess.STDOUT, cwd=WEBUI_Path) 
     
     log('header', "--- Monitoring logs for public URLs... ---")
     found_urls = {}
@@ -145,5 +154,5 @@ if __name__ == '__main__':
     
     if not found_urls and len(tunnels_to_launch) > 0:
         log('error', "❌ No public URLs were generated within the time limit.")
-    elif not all_urls_found_flag and len(tunnels_to_launch) > 0:
+    elif not all_urls_found_flag and len(tunnelels_to_launch) > 0:
         log('warning', "⚠️ Not all tunnel URLs were detected.")
