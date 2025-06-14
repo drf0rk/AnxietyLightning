@@ -1,4 +1,4 @@
-# /content/ANXETY/modules/Manager.py (Refined URL Cleaning for HF)
+# /content/ANXETY/modules/Manager.py (Align aria2c with direct test)
 
 import os
 import sys
@@ -45,79 +45,48 @@ def handle_errors_manager(func):
     return wrapper
 
 @handle_errors_manager
-def clean_url_manager(url_input: str) -> str: # Added type hint for clarity
-    cai_token, _ = get_tokens_manager()
-    
-    # If it's already a direct Civitai API download URL, don't process further with CivitaiAPI logic
-    if 'civitai.com/api/download/models' in url_input:
-        return url_input
-
-    if 'civitai.com/models/' in url_input: # Process Civitai model page URLs
+def clean_url_manager(url_input: str) -> str:
+    if 'civitai.com/api/download/models' in url_input: return url_input
+    if 'civitai.com/models/' in url_input:
+        cai_token, _ = get_tokens_manager()
         api = CivitAiAPI(cai_token)
-        # get_data expects a URL that contains modelVersionId or is a model page URL
-        # Let's try to get model_id first, then version_id if model_id fails.
-        # This part needs to be robust to different Civitai URL formats.
-        
-        # Simplification: Assume if it's a model page, we want the primary file of the latest version.
-        # A more robust CivitaiAPI.get_model_download_url(model_page_url) would be better.
-        # For now, let's assume the CivitaiAPI part handles it or we pass direct download URLs.
-        # This function is tricky if we don't know if it's a model page or version page.
-        # For now, let's assume direct download URLs are passed for Civitai if not using API calls elsewhere.
-        # If it is a model page URL, the API call should resolve it.
-        # Let's assume `api.get_data` or a similar method in CivitaiAPI can robustly find a download link
-        # from various Civitai URL types.
         try:
-            version_data = api.get_data(url_input) # This might need specific version URL
+            version_data = api.get_data(url_input) 
             if version_data and version_data.get('files'):
                 primary_file = next((f for f in version_data['files'] if f.get('primary')), None)
                 file_to_download = primary_file or version_data['files'][0]
                 return file_to_download.get('downloadUrl')
-        except Exception: # If API call fails or URL is not a model page
-            pass # Fall through to other checks or return original
-        return url_input # Fallback if Civitai processing doesn't yield a direct link
-
-    elif 'huggingface.co' in url_input:
-        if '/blob/' in url_input: # Only transform blob URLs
-            return url_input.replace('/blob/', '/resolve/').split('?')[0]
-        # If it's already a /resolve/main/ URL, return it as is
+        except Exception: pass
         return url_input 
-        
-    elif 'github.com' in url_input and '/blob/' in url_input: # Only transform blob URLs
+    elif 'huggingface.co' in url_input:
+        if '/blob/' in url_input: return url_input.replace('/blob/', '/resolve/').split('?')[0]
+        return url_input 
+    elif 'github.com' in url_input and '/blob/' in url_input:
         return url_input.replace('/blob/', '/raw/')
-        
-    return url_input # Return other URLs (like direct GitHub raw) as is
-
+    return url_input
 
 @handle_errors_manager
 def m_download(line, log=False, unzip=False):
     parts = shlex.split(line)
     if not parts: return False
     
-    url_original = parts[0]
+    url_original = parts[0].strip().strip("'").strip('"') # Aggressively strip quotes
+    
     current_home_path = Path(js.read(SETTINGS_PATH_IN_MANAGER, 'ENVIRONMENT.home_path', str(Path.home())))
     dst_dir = Path(parts[1] if len(parts) > 1 else str(current_home_path))
     filename_original = parts[2] if len(parts) > 2 else None
     
-    # Use the original URL directly for the hf_resolve_download check
-    # clean_url_manager will be called later if aria2c is used.
-    
-    # --- MODIFIED CONDITION ---
     is_hf_resolve_download = "huggingface.co" in url_original and "/resolve/main/" in url_original
     
-    # Determine filename before deciding download method
-    # clean_url_for_filename will just be used for filename parsing if needed
-    clean_url_for_filename = clean_url_manager(url_original) 
-    filename_to_use = filename_original or unquote(Path(urlparse(clean_url_for_filename).path).name)
+    url_for_processing = url_original
+    filename_to_use = filename_original or unquote(Path(urlparse(url_for_processing).path).name)
     if not Path(filename_to_use).suffix:
         original_suffix_name = unquote(Path(urlparse(url_original).path).name)
-        if Path(original_suffix_name).suffix:
-            filename_to_use = original_suffix_name
-    
-    common_extensions = ['.safetensors', '.ckpt', '.pt', '.bin', '.zip', '.tar', '.gz', '.lz4', '.yaml', '.json']
+        if Path(original_suffix_name).suffix: filename_to_use = original_suffix_name
+    common_extensions = ['.safetensors','.ckpt','.pt','.bin','.zip','.tar','.gz','.lz4','.yaml','.json']
     if not any(filename_to_use.endswith(ext) for ext in common_extensions) and any(url_original.endswith(ext) for ext in common_extensions):
         derived_filename_from_original_url = unquote(Path(urlparse(url_original).path).name)
-        if Path(derived_filename_from_original_url).suffix:
-             filename_to_use = derived_filename_from_original_url
+        if Path(derived_filename_from_original_url).suffix: filename_to_use = derived_filename_from_original_url
 
     original_cwd = Path.cwd()
     download_successful = False
@@ -127,50 +96,55 @@ def m_download(line, log=False, unzip=False):
         if is_hf_resolve_download:
             log_manager('info', f"Using curl for Hugging Face direct download: {filename_to_use} from {url_original}")
             target_file_path = dst_dir / filename_to_use
-            # curl needs the original URL (which is already a direct /resolve/main/ link)
             curl_command = ["curl", "--location", "--progress-bar", "-o", str(target_file_path), url_original]
             log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 0, 'raw_line': 'curl started'})
-            
             process = subprocess.Popen(curl_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
             for Rline in iter(process.stdout.readline, ''):
-                Rline = Rline.strip()
+                Rline = Rline.strip();
                 if Rline: log_manager('debug', f"curl: {Rline}")
-
             process.wait()
             if process.returncode == 0 and target_file_path.exists() and target_file_path.stat().st_size > 0:
                 log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 100, 'raw_line': 'curl finished'})
                 download_successful = True
             else:
                 log_manager('error', f"curl download failed for {filename_to_use}. Exit code: {process.returncode}")
-                download_successful = False
-        else:
-            # Use aria2c for other downloads (Civitai, general models)
-            # Now call clean_url_manager for aria2c path
+        else: # Use aria2c for other downloads
             url_for_aria = clean_url_manager(url_original)
             if not url_for_aria:
-                log_manager('error', f"URL cleaning failed for aria2c path: {url_original}")
-                return False
+                log_manager('error', f"URL cleaning failed for aria2c path: {url_original}"); return False
 
-            os.chdir(dst_dir)
+            os.chdir(dst_dir) # aria2c works best when in the target dir for -o
             _, hf_token = get_tokens_manager()
-            aria2_base_args = ['aria2c','--allow-overwrite=true','--stderr=true','-c','-x16','-s16','-k1M','-j5','--summary-interval=1','--console-log-level=warn']
-            headers = ['--header="User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"']
-            aria2_command_with_headers = aria2_base_args + headers
-            if hf_token and 'huggingface.co' in url_for_aria:
-                aria2_command_with_headers.append(f'--header="Authorization: Bearer {hf_token}"')
-            aria2_command_full = aria2_command_with_headers + [f'-o', filename_to_use, url_for_aria]
+            
+            # --- Use headers similar to the successful direct test ---
+            aria2_command_list = [
+                'aria2c',
+                '--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                '--header=Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+                '--header=Accept-Language: en-US,en;q=0.9',
+                '--header=Connection: keep-alive',
+                '--allow-overwrite=true',
+                '--stderr=true',
+                '-c', '-x16', '-s16', '-k1M', '-j5',
+                '--summary-interval=1',
+                '--console-log-level=warn', # Keep this to get progress
+                '-o', filename_to_use,
+                url_for_aria # The URL itself
+            ]
+            if hf_token and 'huggingface.co' in url_for_aria: # For non-resolve HF links, if any
+                aria2_command_list.insert(1, f'--header=Authorization: Bearer {hf_token}')
             
             progress_pattern = re.compile(r"\[#[a-f0-9]+\s+([0-9.]+)([GMKiB]+)/([0-9.]+)([GMKiB]+)\s*\((\d+)%\)[^\]]*DL:([0-9.]+)([GMKiB]+)[^\]]*\]")
             max_retries = 2
             for attempt in range(max_retries + 1):
                 log_manager('info', f"Starting aria2c download (Attempt {attempt + 1}/{max_retries + 1}): {filename_to_use}")
-                process = subprocess.Popen(aria2_command_full, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
+                process = subprocess.Popen(aria2_command_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
                 for Rline in iter(process.stdout.readline, ''):
                     Rline = Rline.strip();
                     if not Rline: continue
                     if match := progress_pattern.search(Rline):
                         log_manager('progress', f"Downloading {filename_to_use}", data={'percentage': int(match.group(5)), 'raw_line': Rline})
-                    elif log: log_manager('debug', Rline)
+                    elif log: log_manager('debug', Rline) # Log other output if verbose
                 process.wait()
                 if process.returncode == 0: download_successful = True; break
                 else:
@@ -193,9 +167,8 @@ def m_download(line, log=False, unzip=False):
             return False
             
     finally:
-        if Path.cwd() != original_cwd:
-            os.chdir(original_cwd)
-    return download_successful # Should be True or False based on outcomes
+        if Path.cwd() != original_cwd: os.chdir(original_cwd)
+    return download_successful
 
 def m_clone(command, log_param=False):
     # ... (m_clone remains the same) ...
