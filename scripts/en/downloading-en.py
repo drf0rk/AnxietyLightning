@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (v12 - Final URL Correction)
+# /content/ANXETY/scripts/en/downloading-en.py (v13 - Final URL and VENV Correction)
 
 import os
 import sys
@@ -64,7 +64,7 @@ VENV_PIP = VENV_PATH / "bin" / "pip"
 UI_NAME = widget_settings.get('change_webui', 'Forge')
 WEBUI_PATH = COLAB_CONTENT_PATH / UI_NAME
 
-# --- DEFINITIVELY CORRECTED URLS ---
+# --- DEFINITIVELY CORRECTED URLS (Upstream) ---
 UI_ZIPS = {
     "A1111":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/A1111.zip",
     "Forge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Forge.zip",
