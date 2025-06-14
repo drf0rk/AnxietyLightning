@@ -1,3 +1,5 @@
+# /content/ANXETY/modules/Manager.py (vRobust - HF Hub Downloader)
+
 import os
 import sys
 from pathlib import Path
@@ -9,6 +11,9 @@ import shlex
 import re
 import json
 import time
+import shutil
+from huggingface_hub import hf_hub_download
+from huggingface_hub.utils import GatedRepoError, HfHubHTTPError
 
 # --- Self-aware pathing ---
 try:
@@ -42,26 +47,25 @@ def handle_errors_manager(func):
             return False
     return wrapper
 
-@handle_errors_manager
-def clean_url_manager(url_input: str) -> str:
-    if 'civitai.com/api/download/models' in url_input: return url_input
-    if 'civitai.com/models/' in url_input:
-        cai_token, _ = get_tokens_manager()
-        api = CivitAiAPI(cai_token)
-        try:
-            version_data = api.get_data(url_input)
-            if version_data and version_data.get('files'):
-                primary_file = next((f for f in version_data['files'] if f.get('primary')), None)
-                file_to_download = primary_file or version_data['files'][0]
-                return file_to_download.get('downloadUrl')
-        except Exception: pass
-        return url_input
-    elif 'huggingface.co' in url_input:
-        if '/blob/' in url_input: return url_input.replace('/blob/', '/resolve/').split('?')[0]
-        return url_input
-    elif 'github.com' in url_input and '/blob/' in url_input:
-        return url_input.replace('/blob/', '/raw/')
-    return url_input
+def parse_hf_url(url: str):
+    """Parses a Hugging Face URL to extract repo_id and filename."""
+    parsed_url = urlparse(url)
+    if not parsed_url.netloc == 'huggingface.co':
+        return None, None
+    
+    path_parts = parsed_url.path.strip('/').split('/')
+    if len(path_parts) < 2:
+        return None, None
+    
+    repo_id = f"{path_parts[0]}/{path_parts[1]}"
+    
+    filename = None
+    if '/resolve/' in url and len(path_parts) > 3:
+        filename = '/'.join(path_parts[4:])
+    elif '/blob/' in url and len(path_parts) > 3:
+        filename = '/'.join(path_parts[4:])
+
+    return repo_id, filename
 
 @handle_errors_manager
 def m_download(line, log=False, unzip=False):
@@ -74,54 +78,66 @@ def m_download(line, log=False, unzip=False):
     dst_dir = Path(parts[1] if len(parts) > 1 else str(current_home_path))
     filename_original = parts[2] if len(parts) > 2 else None
 
-    url_for_processing = url_original
-    filename_to_use = filename_original or unquote(Path(urlparse(url_for_processing).path).name)
+    filename_to_use = filename_original or unquote(Path(urlparse(url_original).path).name)
 
-    # --- DEFINITIVE STRATEGY: Check file extension for archives ---
-    ARCHIVE_EXTENSIONS = ('.zip', '.tar', '.gz', '.lz4', '.rar', '.tgz', '.tar.gz', '.tar.bz2', '.tar.xz')
-    is_archive_download = filename_to_use.lower().endswith(ARCHIVE_EXTENSIONS)
-
+    is_hf_url = 'huggingface.co' in url_original
+    
     original_cwd = Path.cwd()
     download_successful = False
     try:
         dst_dir.mkdir(parents=True, exist_ok=True)
 
-        if is_archive_download:
-            log_manager('info', f"Using reliable download (curl) for archive: {filename_to_use}")
+        if is_hf_url:
+            log_manager('info', f"Using Hugging Face Hub downloader for: {filename_to_use}")
+            repo_id, hf_filename = parse_hf_url(url_original)
+            if not repo_id or not hf_filename:
+                log_manager('error', f"Could not parse Hugging Face URL: {url_original}")
+                return False
+            
+            _, hf_token = get_tokens_manager()
+            try:
+                log_manager('progress', f"Downloading {filename_to_use} via HF Hub...", data={'percentage': 0})
+                downloaded_cache_path = hf_hub_download(
+                    repo_id=repo_id,
+                    filename=hf_filename,
+                    token=hf_token or None,
+                    cache_dir=ANXETY_ROOT_MANAGER / '.hf_cache'
+                )
+                log_manager('progress', f"Downloading {filename_to_use} via HF Hub...", data={'percentage': 50})
+                
+                final_destination = dst_dir / filename_to_use
+                shutil.copy(downloaded_cache_path, final_destination)
+                log_manager('progress', f"Downloading {filename_to_use} via HF Hub...", data={'percentage': 100})
+                download_successful = True
+
+            except (GatedRepoError, HfHubHTTPError) as e:
+                log_manager('error', f"Hugging Face Hub download failed: {e}")
+            except Exception as e:
+                log_manager('error', f"An unexpected error occurred with HF Hub download: {e}")
+
+        elif filename_to_use.lower().endswith(('.zip', '.tar', '.gz', '.rar')):
+            log_manager('info', f"Using reliable download (curl) for generic archive: {filename_to_use}")
             target_file_path = dst_dir / filename_to_use
             curl_command = ["curl", "--location", "--progress-bar", "-o", str(target_file_path), url_original]
-            log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 0, 'raw_line': 'curl started'})
-
             process = subprocess.run(curl_command, capture_output=True, text=True, encoding='utf-8', errors='replace')
-
             if process.returncode == 0 and target_file_path.exists() and target_file_path.stat().st_size > 0:
-                log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 100, 'raw_line': 'curl finished'})
                 download_successful = True
             else:
-                log_manager('error', f"curl download failed for {filename_to_use}. Exit code: {process.returncode}. Stderr: {process.stderr}")
+                log_manager('error', f"curl download failed. Exit code: {process.returncode}. Stderr: {process.stderr}")
+        
         else:
-            # Use aria2c for other downloads (e.g., Civitai models)
+            log_manager('info', f"Using aria2c for download: {filename_to_use}")
             url_for_aria = clean_url_manager(url_original)
             if not url_for_aria:
                 log_manager('error', f"URL cleaning failed for aria2c path: {url_original}"); return False
 
             os.chdir(dst_dir)
-            _, hf_token = get_tokens_manager()
-            aria2_command_list = ['aria2c','--header="User-Agent: Mozilla/5.0"','--allow-overwrite=true','--stderr=true','-c','-x16','-s16','-k1M','-j5','--summary-interval=1','--console-log-level=warn','-o',filename_to_use,url_for_aria]
-            if hf_token and 'huggingface.co' in url_for_aria:
-                aria2_command_list.insert(1, f'--header=Authorization: Bearer {hf_token}')
-
-            progress_pattern = re.compile(r"\\[#[a-f0-9]+\\s+.*\\s*\\((\\d+)%\\)[^\\]]*\\]")
-            process = subprocess.Popen(aria2_command_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
-            for Rline in iter(process.stdout.readline, ''):
-                Rline = Rline.strip();
-                if not Rline: continue
-                if match := progress_pattern.search(Rline):
-                    log_manager('progress', f"Downloading {filename_to_use}", data={'percentage': int(match.group(1)), 'raw_line': Rline})
-                elif log: log_manager('debug', Rline)
-            process.wait()
-            if process.returncode == 0: download_successful = True
-            else: log_manager('error', f"aria2c download failed for {filename_to_use}. Exit code: {process.returncode}.")
+            aria2_command = f"aria2c --console-log-level=warn -c -x 16 -s 16 -k 1M -j 5 --summary-interval=1 -o '{filename_to_use}' '{url_for_aria}'"
+            process = subprocess.run(shlex.split(aria2_command), capture_output=True, text=True)
+            if process.returncode == 0:
+                download_successful = True
+            else:
+                log_manager('error', f"aria2c download failed. Exit: {process.returncode}. Stderr: {process.stderr}")
             os.chdir(original_cwd)
 
         if download_successful:
@@ -136,14 +152,7 @@ def m_download(line, log=False, unzip=False):
         else:
             log_manager('error', f"❌ Download ultimately failed for {filename_to_use}")
             return False
-
+            
     finally:
         if Path.cwd() != original_cwd: os.chdir(original_cwd)
     return download_successful
-
-def m_clone(command, log_param=False):
-    try:
-        subprocess.run(shlex.split(command), check=True, capture_output=not log_param)
-        log_manager('success', f"Clone successful: {command.split()[-1]}")
-    except Exception as e:
-        log_manager('error', f"Clone failed for {command.split()[-1]}: {e}")
