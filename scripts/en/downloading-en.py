@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (v16 - DIAGNOSTIC)
+# /content/ANXETY/scripts/en/downloading-en.py (v17 - Definitive Pip Fix)
 
 import os
 import sys
@@ -59,7 +59,6 @@ env_settings, widget_settings, webui_settings = load_all_settings(SETTINGS_PATH)
 COLAB_CONTENT_PATH = Path('/content')
 VENV_PATH = COLAB_CONTENT_PATH / 'venv'
 VENV_PYTHON = VENV_PATH / "bin" / "python3"
-VENV_PIP = VENV_PATH / "bin" / "pip"
 
 UI_NAME = widget_settings.get('change_webui', 'Forge')
 WEBUI_PATH = COLAB_CONTENT_PATH / UI_NAME
@@ -91,7 +90,7 @@ def check_and_install_venv():
         return True
         
     if VENV_PATH.exists():
-        log('info', f"Removing outdated VENV ('{installed_venv_type}') to install required ('{required_venv_type}')...")
+        log('info', f"Removing outdated VENV ('{installed_venv_type}')...")
         shutil.rmtree(VENV_PATH)
         
     filename = Path(urlparse(venv_url).path).name
@@ -109,14 +108,7 @@ def check_and_install_venv():
         
         log('info', f"Extracting {decompressed_tar_file}...")
         subprocess.run(["tar", "-xf", str(decompressed_tar_file), "-C", str(COLAB_CONTENT_PATH)], check=True, capture_output=True)
-
-        # --- DIAGNOSTIC STEP ---
-        log('info', "--- DIAGNOSTIC: Listing contents of /content post-extraction ---")
-        list_command = ["ls", "-lR", "/content"]
-        list_process = subprocess.run(list_command, capture_output=True, text=True)
-        log('info', f"ls -lR /content:\n{list_process.stdout}\n--- END DIAGNOSTIC ---")
-        # --- END DIAGNOSTIC ---
-
+        
         compressed_file.unlink()
         decompressed_tar_file.unlink()
         
@@ -131,12 +123,12 @@ def check_and_install_venv():
         log('error', f"An unexpected error occurred during VENV extraction: {e}"); return False
 
 def run_pip_install_in_venv(packages, description):
-    if not VENV_PIP.exists():
-        log('error', f"VENV pip not found at {VENV_PIP}. Cannot install {description}.")
+    if not VENV_PYTHON.exists():
+        log('error', f"VENV Python not found at {VENV_PYTHON}. Cannot run pip.")
         return False
     try:
         log('info', f"VENV pip: Installing {description} -> {' '.join(packages)}")
-        command_list = [str(VENV_PIP), "install", "-qq"] + packages
+        command_list = [str(VENV_PYTHON), "-m", "pip", "install", "-qq"] + packages
         subprocess.run(command_list, check=True, capture_output=True)
         log('success', f"✅ VENV pip: Successfully installed {description}.")
         return True
@@ -155,7 +147,9 @@ def force_venv_dependencies():
     success = True
     common_uninstall = ["torch", "torchvision", "torchaudio", "xformers", "diffusers", "huggingface-hub"]
     log('info', f"Attempting to uninstall existing versions from VENV: {', '.join(common_uninstall)}")
-    subprocess.run([str(VENV_PIP), "uninstall", "-y", "-qq"] + common_uninstall, capture_output=True)
+    # Use the robust python -m pip invocation for uninstall
+    subprocess.run([str(VENV_PYTHON), "-m", "pip", "uninstall", "-y", "-qq"] + common_uninstall, capture_output=True)
+    
     torch_packages = ["torch==2.2.1+cu121", "torchvision==0.17.1+cu121", "torchaudio==2.2.1+cu121", "--index-url", "https://download.pytorch.org/whl/cu121"]
     if not run_pip_install_in_venv(torch_packages, "PyTorch bundle"): success = False
     xformers_packages = ["xformers==0.0.24"] 
