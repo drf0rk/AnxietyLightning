@@ -1,4 +1,4 @@
-# /content/ANXETY/modules/Manager.py (Final curl Fallback for HF)
+# /content/ANXETY/modules/Manager.py (Explicit Filename Check for Curl)
 
 import os
 import sys
@@ -76,30 +76,28 @@ def m_download(line, log=False, unzip=False):
     dst_dir = Path(parts[1] if len(parts) > 1 else str(current_home_path))
     filename_original = parts[2] if len(parts) > 2 else None
     
-    # --- FINAL STRATEGY: Use curl for any Hugging Face /resolve/ URL ---
-    is_hf_resolve_download = "huggingface.co" in url_original and "/resolve/main/" in url_original
-    
-    # Filename determination logic
-    url_for_filename = clean_url_manager(url_original) or url_original
-    filename_to_use = filename_original or unquote(Path(urlparse(url_for_filename).path).name)
-    if not Path(filename_to_use).suffix:
-        original_suffix_name = unquote(Path(urlparse(url_original).path).name)
-        if Path(original_suffix_name).suffix: filename_to_use = original_suffix_name
+    url_for_processing = url_original
+    filename_to_use = filename_original or unquote(Path(urlparse(url_for_processing).path).name)
+
+    # --- FINAL STRATEGY: Check filename for known VENV or WebUI zip patterns ---
+    is_critical_hf_download = (
+        "python31017-venv" in filename_to_use or
+        "python31112-venv" in filename_to_use or
+        any(ui_zip in filename_to_use for ui_zip in ["A1111.zip", "Forge.zip", "ReForge.zip", "Classic.zip", "ComfyUI.zip", "SD-UX.zip"])
+    )
 
     original_cwd = Path.cwd()
     download_successful = False
     try:
         dst_dir.mkdir(parents=True, exist_ok=True)
         
-        if is_hf_resolve_download:
-            log_manager('info', f"Using reliable download (curl) for Hugging Face URL: {filename_to_use}")
+        if is_critical_hf_download:
+            log_manager('info', f"Using reliable download (curl) for critical file: {filename_to_use}")
             target_file_path = dst_dir / filename_to_use
-            # Use -L to follow redirects, -o to specify output file
-            curl_command = ["curl", "-L", "-o", str(target_file_path), url_original]
-            
-            # Since curl doesn't give nice progress bars via subprocess, we just log start/finish
+            curl_command = ["curl", "--location", "--progress-bar", "-o", str(target_file_path), url_original]
             log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 0, 'raw_line': 'curl started'})
-            process = subprocess.run(curl_command, capture_output=True, text=True)
+            
+            process = subprocess.run(curl_command, capture_output=True, text=True, encoding='utf-8', errors='replace')
             
             if process.returncode == 0 and target_file_path.exists() and target_file_path.stat().st_size > 0:
                 log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 100, 'raw_line': 'curl finished'})
@@ -107,7 +105,7 @@ def m_download(line, log=False, unzip=False):
             else:
                 log_manager('error', f"curl download failed for {filename_to_use}. Exit code: {process.returncode}. Stderr: {process.stderr}")
         else:
-            # Use aria2c for other downloads (e.g., Civitai)
+            # Use aria2c for other downloads (e.g., Civitai models)
             url_for_aria = clean_url_manager(url_original)
             if not url_for_aria:
                 log_manager('error', f"URL cleaning failed for aria2c path: {url_original}"); return False
