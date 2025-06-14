@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (v5 - Forced Module Reload)
+# /content/ANXETY/scripts/en/downloading-en.py (v6 - Robust Reloading)
 
 import os
 import sys
@@ -9,7 +9,7 @@ import shutil
 from urllib.parse import urlparse, unquote
 import runpy
 import shlex
-import importlib # <-- ADDED FOR RELOADING
+import importlib
 
 # --- Self-Contained Path Setup ---
 try:
@@ -21,27 +21,27 @@ if str(ANXETY_ROOT_BACKEND) not in sys.path:
     sys.path.insert(0, str(ANXETY_ROOT_BACKEND))
 # --- End Self-Contained Path Setup ---
 
-import modules.json_utils as js
-
+# --- CRITICAL: Force Module Reload Block ---
 def log(level, message, data=None):
-    log_entry = {"type": "log", "level": level, "message": message, "data": data or {}}
-    print(json.dumps(log_entry), flush=True)
+    print(json.dumps({"type": "log", "level": level, "message": message, "data": data or {}}), flush=True)
 
-# --- CRITICAL: FORCE MODULE RELOAD ---
-# This ensures that even if Python has a cached version of Manager.py
-# from a previous run, it is forced to reload it from disk, picking
-# up the latest changes (like the curl fix).
 try:
-    # We must import the module itself first to be able to reload it.
+    # Reload Manager.py
     import modules.Manager as Manager_module
     importlib.reload(Manager_module)
-    # Now we can safely import the function from the reloaded module.
     from modules.Manager import m_download
-    log('debug', "Successfully reloaded Manager.py to ensure latest version is active.")
-except ImportError:
-    # This is a fallback for the very first time the script runs in a session.
+    
+    # Reload json_utils.py
+    import modules.json_utils as json_utils_module
+    importlib.reload(json_utils_module)
+    js = json_utils_module
+
+    log('debug', "Successfully reloaded core modules (Manager, json_utils).")
+except ImportError as e:
+    log('error', f"Initial module import failed: {e}")
     from modules.Manager import m_download
-# --- END RELOAD ---
+    import modules.json_utils as js
+# --- End Reload Block ---
 
 
 SETTINGS_PATH = ANXETY_ROOT_BACKEND / 'settings.json'
@@ -64,7 +64,7 @@ VENV_PIP = VENV_PATH / "bin" / "pip"
 
 UI_NAME = widget_settings.get('change_webui', 'Forge')
 WEBUI_PATH = COLAB_CONTENT_PATH / UI_NAME
-UI_ZIPS = {"A1111":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/A1111.zip","Forge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Forge.zip","ReForge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/ReForge.zip","Classic":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Classic.zip","ComfyUI":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/ComfyUI.zip","SD-UX":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/SD-UX.zip"} # Ensure this is populated
+UI_ZIPS = {"A1111":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/A1111.zip","Forge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Forge.zip","ReForge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/ReForge.zip","Classic":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Classic.zip","ComfyUI":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/ComfyUI.zip","SD-UX":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/SD-UX.zip"}
 
 def run_pip_install_in_venv(packages, description):
     if not VENV_PIP.exists():
@@ -121,7 +121,6 @@ def install_system_deps():
     try:
         subprocess.run(["apt-get", "update", "-y", "-qq"], check=True, capture_output=True)
         subprocess.run(["apt-get", "install", "-y", "-qq"] + ['aria2', 'lz4', 'pv'], check=True, capture_output=True)
-        # Placeholder for robust cloudflared/ngrok install
         return True
     except: return False
 
@@ -131,7 +130,6 @@ def check_and_install_venv():
     required_venv_type = 'Classic' if is_classic_ui else 'Standard'
     installed_venv_type = env_settings.get('venv_type')
     
-    # Define VENV URLs here
     VENV_URLS = {
         'Standard': 'https://huggingface.co/NagisaNao/ANXETY/resolve/main/venvs/python31017-venv-cuda121.tar.lz4',
         'Classic': 'https://huggingface.co/NagisaNao/ANXETY/resolve/main/venvs/python31112-venv-cuda121.tar.lz4'
@@ -151,7 +149,6 @@ def check_and_install_venv():
     filename = Path(urlparse(venv_url).path).name
     log('info', f"Downloading new VENV: {filename}")
     
-    # Call the reloaded m_download
     if not m_download(f'"{venv_url}" "{COLAB_CONTENT_PATH}" "{filename}"', log=True):
         log('error', f"VENV download failed for {filename}."); return False
         
@@ -179,7 +176,6 @@ def install_webui():
     filename = Path(urlparse(webui_zip_url).path).name
     log('info', f"Downloading and unzipping {UI_NAME} from {filename}...")
     
-    # Use the reloaded m_download and enable unzip
     if not m_download(f'"{webui_zip_url}" "{COLAB_CONTENT_PATH}" "{filename}"', log=True, unzip=True):
         log('error', f"Failed to download or unzip {UI_NAME}."); return False
         
