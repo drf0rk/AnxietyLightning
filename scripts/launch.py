@@ -47,10 +47,8 @@ try:
 except Exception as e:
     log('error', f"Fatal error loading settings in launch.py: {e}"); sys.exit(1)
 
-# --- CRITICAL: Define VENV Python Path ---
 COLAB_CONTENT_PATH = Path(env_settings.get('home_path', '/content'))
 VENV_PYTHON_EXECUTABLE = COLAB_CONTENT_PATH / "venv" / "bin" / "python3"
-# ---
 
 UI = widget_settings.get('change_webui', 'Forge')
 WEBUI_PATH = COLAB_CONTENT_PATH / UI 
@@ -75,14 +73,14 @@ def get_launch_command():
     if UI != 'ComfyUI':
         shared_models_dir = COLAB_CONTENT_PATH / 'sd_models_shared' / 'models'
         path_args = {
-            "--ckpt-dir":shared_models_dir/'Stable-diffusion',
-            "--vae-dir":shared_models_dir/'VAE',
-            "--lora-dir":shared_models_dir/'Lora',
-            "--embeddings-dir":shared_models_dir/'embeddings',
-            "--controlnet-dir":shared_models_dir/'ControlNet'
+            "--ckpt-dir": str(shared_models_dir/'Stable-diffusion'),
+            "--vae-dir": str(shared_models_dir/'VAE'),
+            "--lora-dir": str(shared_models_dir/'Lora'),
+            "--embeddings-dir": str(shared_models_dir/'embeddings'),
+            "--controlnet-dir": str(shared_models_dir/'ControlNet')
         }
         for arg, path_val in path_args.items():
-            command.extend([arg, f'"{path_val}"'])
+            command.extend([arg, path_val])
     
     return command
 
@@ -146,6 +144,6 @@ if __name__ == '__main__':
         time.sleep(5) 
     
     if not found_urls and len(tunnels_to_launch) > 0:
-        log('error', "❌ No public URLs were generated within the time limit. Please check individual log files in the 'logs' directory for errors.")
+        log('error', "❌ No public URLs were generated within the time limit.")
     elif not all_urls_found_flag and len(tunnels_to_launch) > 0:
-        log('warning', "⚠️ Not all tunnel URLs were detected. Some tunnels may have failed. Check logs.")
+        log('warning', "⚠️ Not all tunnel URLs were detected.")
