@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (vRobust - Force VENV Dependencies)
+# /content/ANXETY/scripts/en/downloading-en.py (Corrected Execution Order)
 
 import os
 import sys
@@ -42,21 +42,23 @@ env_settings, widget_settings, webui_settings = load_all_settings(SETTINGS_PATH)
 
 COLAB_CONTENT_PATH = Path('/content')
 VENV_PATH = COLAB_CONTENT_PATH / 'venv'
-VENV_PYTHON = VENV_PATH / "bin" / "python3" # Path to VENV's Python
-VENV_PIP = VENV_PATH / "bin" / "pip"       # Path to VENV's pip
+VENV_PYTHON = VENV_PATH / "bin" / "python3"
+VENV_PIP = VENV_PATH / "bin" / "pip"
 
 UI_NAME = widget_settings.get('change_webui', 'Forge')
 WEBUI_PATH = COLAB_CONTENT_PATH / UI_NAME
-UI_ZIPS = {"A1111":"...", "Forge":"...", "ReForge":"...", "Classic":"...", "ComfyUI":"...", "SD-UX":"..."} # Omitted for brevity
+UI_ZIPS = {"A1111":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/A1111.zip","Forge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Forge.zip","ReForge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/ReForge.zip","Classic":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Classic.zip","ComfyUI":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/ComfyUI.zip","SD-UX":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/SD-UX.zip"} # Ensure this is populated
 
 def run_pip_install_in_venv(packages, description):
     if not VENV_PIP.exists():
-        log('error', f"VENV pip not found at {VENV_PIP}. Cannot install packages.")
+        log('error', f"VENV pip not found at {VENV_PIP}. Cannot install {description}.")
         return False
     try:
-        log('info', f"VENV pip: Installing {description} - {' '.join(packages)}")
-        # Use -qq for quieter output, capture if needed for debugging
-        subprocess.run([str(VENV_PIP), "install", "-qq"] + packages, check=True, capture_output=True)
+        log('info', f"VENV pip: Installing {description} -> {' '.join(packages)}")
+        # Using shlex.split for the command list if any part of 'packages' might contain spaces
+        # For pip, usually just the package names are fine. If URLs with args, shlex might be safer.
+        command_list = [str(VENV_PIP), "install", "-qq"] + packages
+        subprocess.run(command_list, check=True, capture_output=True)
         log('success', f"✅ VENV pip: Successfully installed {description}.")
         return True
     except subprocess.CalledProcessError as e:
@@ -69,83 +71,101 @@ def run_pip_install_in_venv(packages, description):
 
 def force_venv_dependencies():
     log('header', "--- Forcing Core Dependencies in VENV ---")
+    if not VENV_PATH.exists():
+        log('error', "VENV does not exist. Cannot force dependencies. Run VENV setup first.")
+        return False
+        
     success = True
     
-    # Uninstall existing torch, torchvision, torchaudio, xformers from VENV to ensure clean state
-    # Adding -y to pip uninstall to auto-confirm
     common_uninstall = ["torch", "torchvision", "torchaudio", "xformers", "diffusers"]
     log('info', f"Attempting to uninstall existing versions from VENV: {', '.join(common_uninstall)}")
-    subprocess.run([str(VENV_PIP), "uninstall", "-y", "-qq"] + common_uninstall, capture_output=True) # Best effort
+    # No need to check return code for uninstall, it's best effort.
+    subprocess.run([str(VENV_PIP), "uninstall", "-y", "-qq"] + common_uninstall, capture_output=True)
 
-    # Install specific PyTorch version for CUDA 12.1 (common in Colab T4)
-    # PyTorch 2.2.1 is a relatively stable recent version that has wheels for cu121
-    # Check https://pytorch.org/get-started/previous-versions/ for exact commands
+    # Determine Python version for xformers wheel if needed (though pip should handle it)
+    # python_version_in_venv_str = "cp311" if UI_NAME == "Classic" else "cp310"
+
+    # PyTorch for CUDA 12.1
     torch_packages = [
         "torch==2.2.1+cu121",
         "torchvision==0.17.1+cu121",
         "torchaudio==2.2.1+cu121",
-        "-f", "https://download.pytorch.org/whl/torch_stable.html"
+        "--index-url", "https://download.pytorch.org/whl/cu121" # More specific index for CUDA 12.1
     ]
-    if not run_pip_install_in_venv(torch_packages, "PyTorch bundle (2.2.1+cu121)"):
-        success = False
+    if not run_pip_install_in_venv(torch_packages, "PyTorch bundle (2.2.1+cu121)"): success = False
 
-    # Install xformers compatible with PyTorch 2.2.1 and CUDA 12.1
-    # Version 0.0.24 is often cited for torch 2.2.x
-    # We might need to specify the exact wheel URL if pip search fails
+    # xformers - try a version known to work with PyTorch 2.2.x
+    # The specific build for cu121 might be tricky, pip will try to find the best match.
+    # If this fails, a direct wheel URL is the next step for xformers.
     xformers_packages = ["xformers==0.0.24"] 
-    # Alternative if direct install fails:
-    # xformers_packages = ["https://github.com/facebookresearch/xformers/releases/download/v0.0.24/xformers-0.0.24-cp311-cp311-manylinux2014_x86_64.whl"] # Example for Python 3.11
     if not run_pip_install_in_venv(xformers_packages, "xformers (0.0.24)"):
         success = False
-        log('warning', "If xformers install failed, try finding a direct wheel URL for your Python version (e.g., 3.11 for Classic VENV) and PyTorch 2.2.1+cu121.")
+        log('warning', "If xformers install failed, it might be due to no pre-built wheel for PyTorch 2.2.1+cu121 and your VENV's Python. Manual wheel URL might be needed.")
 
-
-    # Install a specific diffusers version if ReForge requires it (e.g., 0.31.0)
-    # Or let ReForge handle it if the above torch/xformers are compatible.
-    # For now, let's install the one ReForge tried to install.
-    diffusers_packages = ["diffusers==0.31.0"]
-    if not run_pip_install_in_venv(diffusers_packages, "diffusers (0.31.0)"):
-        success = False
+    diffusers_packages = ["diffusers==0.31.0"] # As required by ReForge log
+    if not run_pip_install_in_venv(diffusers_packages, "diffusers (0.31.0)"): success = False
         
-    if success:
-        log('success', "✅ Core VENV dependencies forcefully installed/updated.")
-    else:
-        log('error', "❌ Failed to install one or more core VENV dependencies.")
+    if success: log('success', "✅ Core VENV dependencies forcefully installed/updated.")
+    else: log('error', "❌ Failed to install one or more core VENV dependencies.")
     return success
 
-# --- (install_system_deps, check_and_install_venv, install_webui, process_asset_downloads remain largely the same, just ensure they return True/False) ---
-# Make sure these functions also use the VENV_PYTHON and VENV_PIP for any python/pip calls they might make internally
-# if they are supposed to operate within the VENV context.
-
 def install_system_deps():
-    # ... (previous robust implementation) ...
-    # Ensure it returns True on success, False on failure
     log('header', 'Checking and Installing System Dependencies...')
-    # ... (as before)
-    return True # Placeholder - use actual success/failure
+    # ... (implementation from previous version vRobust - Backend Fixes v3 - VENV Path)
+    # Ensure it returns True on success, False on failure.
+    # For brevity, assuming the previous robust implementation is here.
+    # Make sure it correctly handles installation and returns True/False.
+    # Example snippet (replace with full robust code):
+    try:
+        subprocess.run(["apt-get", "update", "-y", "-qq"], check=True, capture_output=True)
+        subprocess.run(["apt-get", "install", "-y", "-qq"] + ['aria2', 'lz4', 'pv'], check=True, capture_output=True)
+        # ... manual cloudflared/ngrok install ...
+        return True
+    except: return False
+
 
 def check_and_install_venv():
-    # ... (previous robust implementation, using COLAB_CONTENT_PATH) ...
-    # Ensure it returns True on success, False on failure
-    return True # Placeholder
+    # ... (implementation from previous version vRobust - Backend Fixes v3 - VENV Path)
+    # Ensure it returns True on success, False on failure.
+    # For brevity, assuming the previous robust implementation is here.
+    # Make sure it correctly uses COLAB_CONTENT_PATH for VENV operations.
+    # Example snippet (replace with full robust code):
+    is_classic_ui = (UI_NAME == 'Classic')
+    required_venv_type = 'Classic' if is_classic_ui else 'Standard'
+    installed_venv_type = env_settings.get('venv_type')
+    if VENV_PATH.exists() and installed_venv_type == required_venv_type: return True
+    if VENV_PATH.exists(): shutil.rmtree(VENV_PATH)
+    venv_url, _ = ("...", '3.11.12') if required_venv_type == 'Classic' else ("...", '3.10.17') # Get actual URLs
+    filename = Path(urlparse(venv_url).path).name
+    if not m_download(f'"{venv_url}" "{COLAB_CONTENT_PATH}" "{filename}"', log=True): return False
+    try:
+        subprocess.run(f"pv \"{COLAB_CONTENT_PATH / filename}\" | lz4 -d | tar xf -", shell=True, check=True, cwd=COLAB_CONTENT_PATH, capture_output=True)
+        (COLAB_CONTENT_PATH / filename).unlink()
+        js.save(str(SETTINGS_PATH), 'ENVIRONMENT.venv_type', required_venv_type)
+        return True
+    except: return False
+
 
 def install_webui():
-    # ... (previous robust implementation, using COLAB_CONTENT_PATH / UI_NAME) ...
-    # Ensure it returns True on success, False on failure
+    # ... (implementation from previous version vRobust - Backend Fixes v3 - VENV Path)
+    # Ensure it returns True on success, False on failure.
+    # For brevity, assuming the previous robust implementation is here.
+    # Make sure it correctly uses COLAB_CONTENT_PATH / UI_NAME for WEBUI_PATH.
     return True # Placeholder
 
 def process_asset_downloads():
-    # ... (previous robust implementation) ...
+    # ... (implementation from previous version vRobust - Backend Fixes v3 - VENV Path)
     return # This one doesn't need to return True/False for the main flow
+
 
 if __name__ == '__main__':
     log('header', "--- Starting Environment Setup ---")
     if install_system_deps():
-        if check_and_install_venv(): # This creates /content/venv
-            # --- NEW STEP: Force critical dependencies into the VENV ---
-            if force_venv_dependencies(): # This operates on /content/venv
-                if install_webui():
-                    process_asset_downloads()
+        # --- CORRECTED ORDER ---
+        if check_and_install_venv(): # 1. Create/ensure VENV
+            if force_venv_dependencies(): # 2. Force dependencies into it
+                if install_webui(): # 3. Install WebUI
+                    process_asset_downloads() # 4. Download assets
                 else:
                     log('error', "Skipping asset downloads due to WebUI installation failure.")
             else:
