@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (v15 - Remove Erroneous Rename)
+# /content/ANXETY/scripts/en/downloading-en.py (v16 - DIAGNOSTIC)
 
 import os
 import sys
@@ -108,10 +108,15 @@ def check_and_install_venv():
         subprocess.run(["lz4", "-d", str(compressed_file), str(decompressed_tar_file)], check=True, capture_output=True)
         
         log('info', f"Extracting {decompressed_tar_file}...")
-        # The archive is correctly structured to create the 'venv' directory. No rename needed.
         subprocess.run(["tar", "-xf", str(decompressed_tar_file), "-C", str(COLAB_CONTENT_PATH)], check=True, capture_output=True)
-        
-        # Cleanup
+
+        # --- DIAGNOSTIC STEP ---
+        log('info', "--- DIAGNOSTIC: Listing contents of /content post-extraction ---")
+        list_command = ["ls", "-lR", "/content"]
+        list_process = subprocess.run(list_command, capture_output=True, text=True)
+        log('info', f"ls -lR /content:\n{list_process.stdout}\n--- END DIAGNOSTIC ---")
+        # --- END DIAGNOSTIC ---
+
         compressed_file.unlink()
         decompressed_tar_file.unlink()
         
