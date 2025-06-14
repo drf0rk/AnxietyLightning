@@ -1,4 +1,4 @@
-# /content/ANXETY/modules/Manager.py (Align aria2c with direct test)
+# /content/ANXETY/modules/Manager.py (Final curl Fallback for HF)
 
 import os
 import sys
@@ -70,23 +70,21 @@ def m_download(line, log=False, unzip=False):
     parts = shlex.split(line)
     if not parts: return False
     
-    url_original = parts[0].strip().strip("'").strip('"') # Aggressively strip quotes
+    url_original = parts[0]
     
     current_home_path = Path(js.read(SETTINGS_PATH_IN_MANAGER, 'ENVIRONMENT.home_path', str(Path.home())))
     dst_dir = Path(parts[1] if len(parts) > 1 else str(current_home_path))
     filename_original = parts[2] if len(parts) > 2 else None
     
+    # --- FINAL STRATEGY: Use curl for any Hugging Face /resolve/ URL ---
     is_hf_resolve_download = "huggingface.co" in url_original and "/resolve/main/" in url_original
     
-    url_for_processing = url_original
-    filename_to_use = filename_original or unquote(Path(urlparse(url_for_processing).path).name)
+    # Filename determination logic
+    url_for_filename = clean_url_manager(url_original) or url_original
+    filename_to_use = filename_original or unquote(Path(urlparse(url_for_filename).path).name)
     if not Path(filename_to_use).suffix:
         original_suffix_name = unquote(Path(urlparse(url_original).path).name)
         if Path(original_suffix_name).suffix: filename_to_use = original_suffix_name
-    common_extensions = ['.safetensors','.ckpt','.pt','.bin','.zip','.tar','.gz','.lz4','.yaml','.json']
-    if not any(filename_to_use.endswith(ext) for ext in common_extensions) and any(url_original.endswith(ext) for ext in common_extensions):
-        derived_filename_from_original_url = unquote(Path(urlparse(url_original).path).name)
-        if Path(derived_filename_from_original_url).suffix: filename_to_use = derived_filename_from_original_url
 
     original_cwd = Path.cwd()
     download_successful = False
@@ -94,63 +92,43 @@ def m_download(line, log=False, unzip=False):
         dst_dir.mkdir(parents=True, exist_ok=True)
         
         if is_hf_resolve_download:
-            log_manager('info', f"Using curl for Hugging Face direct download: {filename_to_use} from {url_original}")
+            log_manager('info', f"Using reliable download (curl) for Hugging Face URL: {filename_to_use}")
             target_file_path = dst_dir / filename_to_use
-            curl_command = ["curl", "--location", "--progress-bar", "-o", str(target_file_path), url_original]
+            # Use -L to follow redirects, -o to specify output file
+            curl_command = ["curl", "-L", "-o", str(target_file_path), url_original]
+            
+            # Since curl doesn't give nice progress bars via subprocess, we just log start/finish
             log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 0, 'raw_line': 'curl started'})
-            process = subprocess.Popen(curl_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
-            for Rline in iter(process.stdout.readline, ''):
-                Rline = Rline.strip();
-                if Rline: log_manager('debug', f"curl: {Rline}")
-            process.wait()
+            process = subprocess.run(curl_command, capture_output=True, text=True)
+            
             if process.returncode == 0 and target_file_path.exists() and target_file_path.stat().st_size > 0:
                 log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 100, 'raw_line': 'curl finished'})
                 download_successful = True
             else:
-                log_manager('error', f"curl download failed for {filename_to_use}. Exit code: {process.returncode}")
-        else: # Use aria2c for other downloads
+                log_manager('error', f"curl download failed for {filename_to_use}. Exit code: {process.returncode}. Stderr: {process.stderr}")
+        else:
+            # Use aria2c for other downloads (e.g., Civitai)
             url_for_aria = clean_url_manager(url_original)
             if not url_for_aria:
                 log_manager('error', f"URL cleaning failed for aria2c path: {url_original}"); return False
 
-            os.chdir(dst_dir) # aria2c works best when in the target dir for -o
+            os.chdir(dst_dir)
             _, hf_token = get_tokens_manager()
-            
-            # --- Use headers similar to the successful direct test ---
-            aria2_command_list = [
-                'aria2c',
-                '--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                '--header=Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-                '--header=Accept-Language: en-US,en;q=0.9',
-                '--header=Connection: keep-alive',
-                '--allow-overwrite=true',
-                '--stderr=true',
-                '-c', '-x16', '-s16', '-k1M', '-j5',
-                '--summary-interval=1',
-                '--console-log-level=warn', # Keep this to get progress
-                '-o', filename_to_use,
-                url_for_aria # The URL itself
-            ]
-            if hf_token and 'huggingface.co' in url_for_aria: # For non-resolve HF links, if any
+            aria2_command_list = ['aria2c','--header="User-Agent: Mozilla/5.0"','--allow-overwrite=true','--stderr=true','-c','-x16','-s16','-k1M','-j5','--summary-interval=1','--console-log-level=warn','-o',filename_to_use,url_for_aria]
+            if hf_token and 'huggingface.co' in url_for_aria:
                 aria2_command_list.insert(1, f'--header=Authorization: Bearer {hf_token}')
             
-            progress_pattern = re.compile(r"\[#[a-f0-9]+\s+([0-9.]+)([GMKiB]+)/([0-9.]+)([GMKiB]+)\s*\((\d+)%\)[^\]]*DL:([0-9.]+)([GMKiB]+)[^\]]*\]")
-            max_retries = 2
-            for attempt in range(max_retries + 1):
-                log_manager('info', f"Starting aria2c download (Attempt {attempt + 1}/{max_retries + 1}): {filename_to_use}")
-                process = subprocess.Popen(aria2_command_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
-                for Rline in iter(process.stdout.readline, ''):
-                    Rline = Rline.strip();
-                    if not Rline: continue
-                    if match := progress_pattern.search(Rline):
-                        log_manager('progress', f"Downloading {filename_to_use}", data={'percentage': int(match.group(5)), 'raw_line': Rline})
-                    elif log: log_manager('debug', Rline) # Log other output if verbose
-                process.wait()
-                if process.returncode == 0: download_successful = True; break
-                else:
-                    log_manager('error', f"aria2c attempt {attempt + 1} failed for {filename_to_use}. Exit code: {process.returncode}.")
-                    if attempt < max_retries: time.sleep(5)
-                    else: log_manager('error', f"All aria2c attempts failed for {filename_to_use}.")
+            progress_pattern = re.compile(r"\[#[a-f0-9]+\s+.*\s*\((\d+)%\)[^\]]*\]")
+            process = subprocess.Popen(aria2_command_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
+            for Rline in iter(process.stdout.readline, ''):
+                Rline = Rline.strip();
+                if not Rline: continue
+                if match := progress_pattern.search(Rline):
+                    log_manager('progress', f"Downloading {filename_to_use}", data={'percentage': int(match.group(1)), 'raw_line': Rline})
+                elif log: log_manager('debug', Rline)
+            process.wait()
+            if process.returncode == 0: download_successful = True
+            else: log_manager('error', f"aria2c download failed for {filename_to_use}. Exit code: {process.returncode}.")
             os.chdir(original_cwd)
 
         if download_successful:
@@ -171,7 +149,6 @@ def m_download(line, log=False, unzip=False):
     return download_successful
 
 def m_clone(command, log_param=False):
-    # ... (m_clone remains the same) ...
     try:
         subprocess.run(shlex.split(command), check=True, capture_output=not log_param)
         log_manager('success', f"Clone successful: {command.split()[-1]}")
