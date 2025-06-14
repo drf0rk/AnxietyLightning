@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/launch.py (vRobust - Reloading)
+# /content/ANXETY/scripts/launch.py (vRobust - Correct Log Scope)
 
 import os
 import sys
@@ -9,6 +9,10 @@ import shlex
 import json
 import subprocess
 import importlib
+
+# --- Global Logging Function ---
+def log(level, message, data=None):
+    print(json.dumps({"type": "log", "level": level, "message": message, "data": data or {}}), flush=True)
 
 # --- Self-Contained Path Setup ---
 try:
@@ -21,9 +25,6 @@ if str(ANXETY_ROOT_BACKEND) not in sys.path:
 # --- End Self-Contained Path Setup ---
 
 # --- CRITICAL: Force Module Reload Block ---
-def log(level, message, data=None):
-    print(json.dumps({"type": "log", "level": level, "message": message, "data": data or {}}), flush=True)
-
 try:
     import modules.json_utils as json_utils_module
     importlib.reload(json_utils_module)
