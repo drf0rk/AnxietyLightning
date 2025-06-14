@@ -95,7 +95,7 @@ def m_download(line, log=False, unzip=False):
             process = subprocess.run(curl_command, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
             if process.returncode == 0 and target_file_path.exists() and target_file_path.stat().st_size > 0:
-                log_manager('progress', f"Downloading {filename_to_use} with curl...\", data={'percentage': 100, 'raw_line': 'curl finished'}")
+                log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 100, 'raw_line': 'curl finished'})
                 download_successful = True
             else:
                 log_manager('error', f"curl download failed for {filename_to_use}. Exit code: {process.returncode}. Stderr: {process.stderr}")
