@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (v13 - Final URL and VENV Correction)
+# /content/ANXETY/scripts/en/downloading-en.py (v14 - Final VENV Rename)
 
 import os
 import sys
@@ -64,7 +64,10 @@ VENV_PIP = VENV_PATH / "bin" / "pip"
 UI_NAME = widget_settings.get('change_webui', 'Forge')
 WEBUI_PATH = COLAB_CONTENT_PATH / UI_NAME
 
-# --- DEFINITIVELY CORRECTED URLS (Upstream) ---
+VENV_URLS = {
+    'Standard': 'https://huggingface.co/NagisaNao/ANXETY/resolve/main/python31017-venv-torch251-cu121-C-fca.tar.lz4',
+    'Classic': 'https://huggingface.co/NagisaNao/ANXETY/resolve/main/python31112-venv-torch251-cu121-C-Classic.tar.lz4'
+}
 UI_ZIPS = {
     "A1111":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/A1111.zip",
     "Forge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Forge.zip",
@@ -73,10 +76,65 @@ UI_ZIPS = {
     "ComfyUI":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/ComfyUI.zip",
     "SD-UX":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/SD-UX.zip"
 }
-VENV_URLS = {
-    'Standard': 'https://huggingface.co/NagisaNao/ANXETY/resolve/main/python31017-venv-torch251-cu121-C-fca.tar.lz4',
-    'Classic': 'https://huggingface.co/NagisaNao/ANXETY/resolve/main/python31112-venv-torch251-cu121-C-Classic.tar.lz4'
-}
+
+
+def check_and_install_venv():
+    is_classic_ui = (UI_NAME == 'Classic')
+    required_venv_type = 'Classic' if is_classic_ui else 'Standard'
+    installed_venv_type = env_settings.get('venv_type')
+    
+    venv_url = VENV_URLS.get(required_venv_type)
+    if not venv_url:
+        log('error', f"No VENV URL defined for type: {required_venv_type}"); return False
+
+    # Check if the correct VENV is already installed and valid
+    if VENV_PATH.exists() and installed_venv_type == required_venv_type:
+        log('info', f"Correct VENV ('{required_venv_type}') already exists.")
+        return True
+        
+    if VENV_PATH.exists():
+        log('info', f"Removing outdated VENV ('{installed_venv_type}') to install required ('{required_venv_type}')...")
+        shutil.rmtree(VENV_PATH)
+        
+    filename = Path(urlparse(venv_url).path).name
+    log('info', f"Downloading new VENV: {filename}")
+    
+    if not m_download(f'"{venv_url}" "{COLAB_CONTENT_PATH}" "{filename}"', log=True):
+        log('error', f"VENV download failed for {filename}."); return False
+        
+    try:
+        compressed_file = COLAB_CONTENT_PATH / filename
+        decompressed_tar_file = compressed_file.with_suffix('')
+        
+        # This is the name of the folder that will be created by tar
+        extracted_folder_name = decompressed_tar_file.stem 
+        extracted_folder_path = COLAB_CONTENT_PATH / extracted_folder_name
+        
+        log('info', f"Decompressing {compressed_file}...")
+        subprocess.run(["lz4", "-d", str(compressed_file), str(decompressed_tar_file)], check=True, capture_output=True)
+        
+        log('info', f"Extracting {decompressed_tar_file}...")
+        subprocess.run(["tar", "-xf", str(decompressed_tar_file), "-C", str(COLAB_CONTENT_PATH)], check=True, capture_output=True)
+        
+        # --- THE FIX: RENAME THE EXTRACTED FOLDER ---
+        log('info', f"Renaming extracted folder from '{extracted_folder_name}' to 'venv'...")
+        shutil.move(str(extracted_folder_path), str(VENV_PATH))
+        
+        # Cleanup
+        compressed_file.unlink()
+        decompressed_tar_file.unlink()
+        
+        js.save(str(SETTINGS_PATH), 'ENVIRONMENT.venv_type', required_venv_type)
+        log('success', f"✅ VENV '{required_venv_type}' installed successfully.")
+        return True
+    except subprocess.CalledProcessError as e:
+        error_output = e.stderr.decode(errors='replace').strip() if e.stderr else "No stderr."
+        log('error', f"VENV extraction failed. Command '{' '.join(e.cmd)}' failed. Error: {error_output}")
+        return False
+    except Exception as e:
+        log('error', f"An unexpected error occurred during VENV extraction: {e}"); return False
+
+# ... The rest of the file remains the same ...
 
 def run_pip_install_in_venv(packages, description):
     if not VENV_PIP.exists():
@@ -125,49 +183,6 @@ def install_system_deps():
     except: 
         log('error', "Failed to install system dependencies via apt-get.")
         return False
-
-def check_and_install_venv():
-    is_classic_ui = (UI_NAME == 'Classic')
-    required_venv_type = 'Classic' if is_classic_ui else 'Standard'
-    installed_venv_type = env_settings.get('venv_type')
-    
-    venv_url = VENV_URLS.get(required_venv_type)
-    if not venv_url:
-        log('error', f"No VENV URL defined for type: {required_venv_type}"); return False
-
-    if VENV_PATH.exists() and installed_venv_type == required_venv_type:
-        log('info', f"Correct VENV ('{required_venv_type}') already exists.")
-        return True
-        
-    if VENV_PATH.exists():
-        log('info', f"Removing outdated VENV ('{installed_venv_type}') to install required ('{required_venv_type}')...")
-        shutil.rmtree(VENV_PATH)
-        
-    filename = Path(urlparse(venv_url).path).name
-    log('info', f"Downloading new VENV: {filename}")
-    
-    if not m_download(f'"{venv_url}" "{COLAB_CONTENT_PATH}" "{filename}"', log=True):
-        log('error', f"VENV download failed for {filename}."); return False
-        
-    try:
-        compressed_file = COLAB_CONTENT_PATH / filename
-        decompressed_tar_file = compressed_file.with_suffix('')
-        log('info', f"Decompressing {compressed_file} to {decompressed_tar_file}...")
-        lz4_command = ["lz4", "-d", str(compressed_file), str(decompressed_tar_file)]
-        subprocess.run(lz4_command, check=True, capture_output=True)
-        log('info', f"Extracting {decompressed_tar_file}...")
-        tar_command = ["tar", "-xf", str(decompressed_tar_file), "-C", str(COLAB_CONTENT_PATH)]
-        subprocess.run(tar_command, check=True, capture_output=True)
-        compressed_file.unlink(); decompressed_tar_file.unlink()
-        js.save(str(SETTINGS_PATH), 'ENVIRONMENT.venv_type', required_venv_type)
-        log('success', f"✅ VENV '{required_venv_type}' installed successfully.")
-        return True
-    except subprocess.CalledProcessError as e:
-        error_output = e.stderr.decode(errors='replace').strip() if e.stderr else "No stderr."
-        log('error', f"VENV extraction failed. Command '{' '.join(e.cmd)}' failed. Error: {error_output}")
-        return False
-    except Exception as e:
-        log('error', f"An unexpected error occurred during VENV extraction: {e}"); return False
 
 def install_webui():
     webui_zip_url = UI_ZIPS.get(UI_NAME)
