@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (v14 - Final VENV Rename)
+# /content/ANXETY/scripts/en/downloading-en.py (v15 - Remove Erroneous Rename)
 
 import os
 import sys
@@ -77,7 +77,6 @@ UI_ZIPS = {
     "SD-UX":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/SD-UX.zip"
 }
 
-
 def check_and_install_venv():
     is_classic_ui = (UI_NAME == 'Classic')
     required_venv_type = 'Classic' if is_classic_ui else 'Standard'
@@ -87,7 +86,6 @@ def check_and_install_venv():
     if not venv_url:
         log('error', f"No VENV URL defined for type: {required_venv_type}"); return False
 
-    # Check if the correct VENV is already installed and valid
     if VENV_PATH.exists() and installed_venv_type == required_venv_type:
         log('info', f"Correct VENV ('{required_venv_type}') already exists.")
         return True
@@ -106,19 +104,12 @@ def check_and_install_venv():
         compressed_file = COLAB_CONTENT_PATH / filename
         decompressed_tar_file = compressed_file.with_suffix('')
         
-        # This is the name of the folder that will be created by tar
-        extracted_folder_name = decompressed_tar_file.stem 
-        extracted_folder_path = COLAB_CONTENT_PATH / extracted_folder_name
-        
         log('info', f"Decompressing {compressed_file}...")
         subprocess.run(["lz4", "-d", str(compressed_file), str(decompressed_tar_file)], check=True, capture_output=True)
         
         log('info', f"Extracting {decompressed_tar_file}...")
+        # The archive is correctly structured to create the 'venv' directory. No rename needed.
         subprocess.run(["tar", "-xf", str(decompressed_tar_file), "-C", str(COLAB_CONTENT_PATH)], check=True, capture_output=True)
-        
-        # --- THE FIX: RENAME THE EXTRACTED FOLDER ---
-        log('info', f"Renaming extracted folder from '{extracted_folder_name}' to 'venv'...")
-        shutil.move(str(extracted_folder_path), str(VENV_PATH))
         
         # Cleanup
         compressed_file.unlink()
@@ -133,8 +124,6 @@ def check_and_install_venv():
         return False
     except Exception as e:
         log('error', f"An unexpected error occurred during VENV extraction: {e}"); return False
-
-# ... The rest of the file remains the same ...
 
 def run_pip_install_in_venv(packages, description):
     if not VENV_PIP.exists():
