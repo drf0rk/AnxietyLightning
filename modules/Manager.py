@@ -1,5 +1,3 @@
-# /content/ANXETY/modules/Manager.py (Explicit Filename Check for Curl)
-
 import os
 import sys
 from pathlib import Path
@@ -51,16 +49,16 @@ def clean_url_manager(url_input: str) -> str:
         cai_token, _ = get_tokens_manager()
         api = CivitAiAPI(cai_token)
         try:
-            version_data = api.get_data(url_input) 
+            version_data = api.get_data(url_input)
             if version_data and version_data.get('files'):
                 primary_file = next((f for f in version_data['files'] if f.get('primary')), None)
                 file_to_download = primary_file or version_data['files'][0]
                 return file_to_download.get('downloadUrl')
         except Exception: pass
-        return url_input 
+        return url_input
     elif 'huggingface.co' in url_input:
         if '/blob/' in url_input: return url_input.replace('/blob/', '/resolve/').split('?')[0]
-        return url_input 
+        return url_input
     elif 'github.com' in url_input and '/blob/' in url_input:
         return url_input.replace('/blob/', '/raw/')
     return url_input
@@ -69,38 +67,35 @@ def clean_url_manager(url_input: str) -> str:
 def m_download(line, log=False, unzip=False):
     parts = shlex.split(line)
     if not parts: return False
-    
+
     url_original = parts[0]
-    
+
     current_home_path = Path(js.read(SETTINGS_PATH_IN_MANAGER, 'ENVIRONMENT.home_path', str(Path.home())))
     dst_dir = Path(parts[1] if len(parts) > 1 else str(current_home_path))
     filename_original = parts[2] if len(parts) > 2 else None
-    
+
     url_for_processing = url_original
     filename_to_use = filename_original or unquote(Path(urlparse(url_for_processing).path).name)
 
-    # --- FINAL STRATEGY: Check filename for known VENV or WebUI zip patterns ---
-    is_critical_hf_download = (
-        "python31017-venv" in filename_to_use or
-        "python31112-venv" in filename_to_use or
-        any(ui_zip in filename_to_use for ui_zip in ["A1111.zip", "Forge.zip", "ReForge.zip", "Classic.zip", "ComfyUI.zip", "SD-UX.zip"])
-    )
+    # --- DEFINITIVE STRATEGY: Check file extension for archives ---
+    ARCHIVE_EXTENSIONS = ('.zip', '.tar', '.gz', '.lz4', '.rar', '.tgz', '.tar.gz', '.tar.bz2', '.tar.xz')
+    is_archive_download = filename_to_use.lower().endswith(ARCHIVE_EXTENSIONS)
 
     original_cwd = Path.cwd()
     download_successful = False
     try:
         dst_dir.mkdir(parents=True, exist_ok=True)
-        
-        if is_critical_hf_download:
-            log_manager('info', f"Using reliable download (curl) for critical file: {filename_to_use}")
+
+        if is_archive_download:
+            log_manager('info', f"Using reliable download (curl) for archive: {filename_to_use}")
             target_file_path = dst_dir / filename_to_use
             curl_command = ["curl", "--location", "--progress-bar", "-o", str(target_file_path), url_original]
             log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 0, 'raw_line': 'curl started'})
-            
+
             process = subprocess.run(curl_command, capture_output=True, text=True, encoding='utf-8', errors='replace')
-            
+
             if process.returncode == 0 and target_file_path.exists() and target_file_path.stat().st_size > 0:
-                log_manager('progress', f"Downloading {filename_to_use} with curl...", data={'percentage': 100, 'raw_line': 'curl finished'})
+                log_manager('progress', f"Downloading {filename_to_use} with curl...\", data={'percentage': 100, 'raw_line': 'curl finished'}")
                 download_successful = True
             else:
                 log_manager('error', f"curl download failed for {filename_to_use}. Exit code: {process.returncode}. Stderr: {process.stderr}")
@@ -115,8 +110,8 @@ def m_download(line, log=False, unzip=False):
             aria2_command_list = ['aria2c','--header="User-Agent: Mozilla/5.0"','--allow-overwrite=true','--stderr=true','-c','-x16','-s16','-k1M','-j5','--summary-interval=1','--console-log-level=warn','-o',filename_to_use,url_for_aria]
             if hf_token and 'huggingface.co' in url_for_aria:
                 aria2_command_list.insert(1, f'--header=Authorization: Bearer {hf_token}')
-            
-            progress_pattern = re.compile(r"\[#[a-f0-9]+\s+.*\s*\((\d+)%\)[^\]]*\]")
+
+            progress_pattern = re.compile(r"\\[#[a-f0-9]+\\s+.*\\s*\\((\\d+)%\\)[^\\]]*\\]")
             process = subprocess.Popen(aria2_command_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
             for Rline in iter(process.stdout.readline, ''):
                 Rline = Rline.strip();
@@ -141,7 +136,7 @@ def m_download(line, log=False, unzip=False):
         else:
             log_manager('error', f"❌ Download ultimately failed for {filename_to_use}")
             return False
-            
+
     finally:
         if Path.cwd() != original_cwd: os.chdir(original_cwd)
     return download_successful
