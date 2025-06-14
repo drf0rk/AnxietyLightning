@@ -28,9 +28,9 @@ try:
     import modules.json_utils as json_utils_module
     importlib.reload(json_utils_module)
     js = json_utils_module
-    log('debug', "Successfully reloaded json_utils module.")
+    log('debug', "Successfully reloaded json_utils module in launch.py.")
 except ImportError as e:
-    log('error', f"Initial import of json_utils failed: {e}")
+    log('error', f"Initial import of json_utils failed in launch.py: {e}")
     import modules.json_utils as js
 # --- End Reload Block ---
 
@@ -85,7 +85,6 @@ def get_launch_command():
     
     return command
 
-
 if __name__ == '__main__':
     log('info', 'Please Wait, Launching WebUI and Tunnels...')
     
@@ -137,7 +136,7 @@ if __name__ == '__main__':
                 except FileNotFoundError: pass
                 except Exception as e: log('error', f"Error reading log for {tunnel['name']}: {e}")
         
-        if all_urls_found_flag and len(found_urls) == len(tunnels_to_launch) and len(tunnels_to_launch) > 0 :
+        if all_urls_found_flag and len(found_urls) == len(tunnels_to_launch) and len(tunnels_to_launch) > 0:
             log('success', "✅ All tunnel URLs detected.")
             break 
         elif len(tunnels_to_launch) == 0:
