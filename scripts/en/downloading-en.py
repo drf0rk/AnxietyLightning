@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (v11 - Correct URLs)
+# /content/ANXETY/scripts/en/downloading-en.py (v12 - Final URL Correction)
 
 import os
 import sys
@@ -64,14 +64,18 @@ VENV_PIP = VENV_PATH / "bin" / "pip"
 UI_NAME = widget_settings.get('change_webui', 'Forge')
 WEBUI_PATH = COLAB_CONTENT_PATH / UI_NAME
 
-# --- CORRECTED URLS ---
+# --- DEFINITIVELY CORRECTED URLS ---
 UI_ZIPS = {
-    "A1111":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/A1111.zip",
-    "Forge":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/Forge.zip",
-    "ReForge":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/ReForge.zip",
-    "Classic":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/Classic.zip",
-    "ComfyUI":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/ComfyUI.zip",
-    "SD-UX":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/SD-UX.zip"
+    "A1111":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/A1111.zip",
+    "Forge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Forge.zip",
+    "ReForge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/ReForge.zip",
+    "Classic":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Classic.zip",
+    "ComfyUI":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/ComfyUI.zip",
+    "SD-UX":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/SD-UX.zip"
+}
+VENV_URLS = {
+    'Standard': 'https://huggingface.co/NagisaNao/ANXETY/resolve/main/python31017-venv-torch251-cu121-C-fca.tar.lz4',
+    'Classic': 'https://huggingface.co/NagisaNao/ANXETY/resolve/main/python31112-venv-torch251-cu121-C-Classic.tar.lz4'
 }
 
 def run_pip_install_in_venv(packages, description):
@@ -127,11 +131,6 @@ def check_and_install_venv():
     required_venv_type = 'Classic' if is_classic_ui else 'Standard'
     installed_venv_type = env_settings.get('venv_type')
     
-    # --- CORRECTED URLS ---
-    VENV_URLS = {
-        'Standard': 'https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/venvs/python31017-venv-cuda121.tar.lz4',
-        'Classic': 'https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/venvs/python31112-venv-cuda121.tar.lz4'
-    }
     venv_url = VENV_URLS.get(required_venv_type)
     if not venv_url:
         log('error', f"No VENV URL defined for type: {required_venv_type}"); return False
