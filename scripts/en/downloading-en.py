@@ -1,4 +1,4 @@
-# /content/ANXETY/scripts/en/downloading-en.py (v10 - Full Restoration)
+# /content/ANXETY/scripts/en/downloading-en.py (v11 - Correct URLs)
 
 import os
 import sys
@@ -63,7 +63,16 @@ VENV_PIP = VENV_PATH / "bin" / "pip"
 
 UI_NAME = widget_settings.get('change_webui', 'Forge')
 WEBUI_PATH = COLAB_CONTENT_PATH / UI_NAME
-UI_ZIPS = {"A1111":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/A1111.zip","Forge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Forge.zip","ReForge":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/ReForge.zip","Classic":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/Classic.zip","ComfyUI":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/ComfyUI.zip","SD-UX":"https://huggingface.co/NagisaNao/ANXETY/resolve/main/SD-UX.zip"}
+
+# --- CORRECTED URLS ---
+UI_ZIPS = {
+    "A1111":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/A1111.zip",
+    "Forge":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/Forge.zip",
+    "ReForge":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/ReForge.zip",
+    "Classic":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/Classic.zip",
+    "ComfyUI":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/ComfyUI.zip",
+    "SD-UX":"https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/SD-UX.zip"
+}
 
 def run_pip_install_in_venv(packages, description):
     if not VENV_PIP.exists():
@@ -87,25 +96,18 @@ def force_venv_dependencies():
     log('header', "--- Forcing Core Dependencies in VENV ---")
     if not VENV_PATH.exists():
         log('error', "VENV does not exist. Cannot force dependencies."); return False
-        
     success = True
-    
     common_uninstall = ["torch", "torchvision", "torchaudio", "xformers", "diffusers", "huggingface-hub"]
     log('info', f"Attempting to uninstall existing versions from VENV: {', '.join(common_uninstall)}")
     subprocess.run([str(VENV_PIP), "uninstall", "-y", "-qq"] + common_uninstall, capture_output=True)
-
     torch_packages = ["torch==2.2.1+cu121", "torchvision==0.17.1+cu121", "torchaudio==2.2.1+cu121", "--index-url", "https://download.pytorch.org/whl/cu121"]
     if not run_pip_install_in_venv(torch_packages, "PyTorch bundle"): success = False
-
     xformers_packages = ["xformers==0.0.24"] 
     if not run_pip_install_in_venv(xformers_packages, "xformers"): success = False
-
     diffusers_packages = ["diffusers==0.31.0"]
     if not run_pip_install_in_venv(diffusers_packages, "diffusers"): success = False
-        
     hf_hub_packages = ["huggingface-hub==0.23.0"] 
     if not run_pip_install_in_venv(hf_hub_packages, "Hugging Face Hub library"): success = False
-        
     if success: log('success', "✅ Core VENV dependencies forcefully installed/updated.")
     else: log('error', "❌ Failed to install one or more core VENV dependencies.")
     return success
@@ -125,7 +127,11 @@ def check_and_install_venv():
     required_venv_type = 'Classic' if is_classic_ui else 'Standard'
     installed_venv_type = env_settings.get('venv_type')
     
-    VENV_URLS = {'Standard': 'https://huggingface.co/NagisaNao/ANXETY/resolve/main/venvs/python31017-venv-cuda121.tar.lz4', 'Classic': 'https://huggingface.co/NagisaNao/ANXETY/resolve/main/venvs/python31112-venv-cuda121.tar.lz4'}
+    # --- CORRECTED URLS ---
+    VENV_URLS = {
+        'Standard': 'https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/venvs/python31017-venv-cuda121.tar.lz4',
+        'Classic': 'https://huggingface.co/drf0rk/AnxietyLightning/resolve/main/venvs/python31112-venv-cuda121.tar.lz4'
+    }
     venv_url = VENV_URLS.get(required_venv_type)
     if not venv_url:
         log('error', f"No VENV URL defined for type: {required_venv_type}"); return False
