@@ -13,15 +13,20 @@ if str(ANXETY_ROOT) not in sys.path:
 
 # --- Load Data and Orchestrator ---
 try:
-    # We load the data and the orchestrator function here, within the UI script
+    # This logic will be moved to a dedicated orchestrator/logic script later
+    # For now, we load it here to get the UI running.
     sd15_data = runpy.run_path(str(ANXETY_ROOT / 'scripts/_models-data.py'))
     sdxl_data = runpy.run_path(str(ANXETY_ROOT / 'scripts/_xl-models-data.py'))
     loras_data_full = runpy.run_path(str(ANXETY_ROOT / 'scripts/_loras-data.py'))
     
+    # This will be replaced with a cleaner logic script call
     orchestrator_path = ANXETY_ROOT / 'scripts' / 'orchestrator.py'
-    loaded_orchestrator = runpy.run_path(str(orchestrator_path))
-    save_and_launch_generator = loaded_orchestrator['save_and_launch_generator']
-    webui_selection_args = loaded_orchestrator['webui_selection_args']
+    if orchestrator_path.exists(): # Temporary check for old file
+        loaded_orchestrator = runpy.run_path(str(orchestrator_path))
+        save_and_launch_generator = loaded_orchestrator['save_and_launch_generator']
+        webui_selection_args = loaded_orchestrator['webui_selection_args']
+    else: # Fallback for new structure - this needs a proper refactor
+        from scripts.logic import save_and_launch_generator, webui_selection_args
 
     # Extract model choices for the UI
     sd15_model_choices = list(sd15_data.get('sd15_model_data', {}).keys())
@@ -35,10 +40,11 @@ try:
     print("✅ Asset data loaded for UI.")
 
 except Exception as e:
-    print(f"❌ FATAL [UI]: Failed to load data or orchestrator. Error: {e}")
+    # A cleaner error handling for the future
+    print(f"❌ FATAL [UI]: Failed to load critical data. You may need to restart the runtime. Error: {e}")
     sys.exit(1)
 
-# --- UI Styling ---
+# --- UI Styling (FIXED) ---
 MODERN_LOG_CSS = \"\"\"<style>
     #log_output_html{background-color:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;font-family:'Monaco','Consolas','Menlo',monospace;color:#c9d1d9;height:400px;overflow-y:auto}
     #log_output_html .log-line{display:block;animation:fadeIn .5s ease-in-out; white-space: pre-wrap; word-break: break-all;}
@@ -53,7 +59,7 @@ MODERN_LOG_CSS = \"\"\"<style>
 
 # --- Gradio UI Definition ---
 with gr.Blocks(theme=gr.themes.Soft(), css=MODERN_LOG_CSS) as demo:
-    gr.Markdown("## ⚡ AnxietyLightning Launcher (v29.0 - Thin Launcher Edition)")
+    gr.Markdown("## ⚡ AnxietyLightning Launcher (v30.0 - Thin Launcher)")
     with gr.Tabs():
         with gr.TabItem("1. Setup & Asset Selection"):
             with gr.Row():
