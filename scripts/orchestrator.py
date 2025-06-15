@@ -10,14 +10,10 @@ import json
 import time
 
 # --- Environment Setup ---
-# This script assumes it is run after the main notebook cell has set up the environment
-# and added the project root to the python path.
-
 ANXETY_ROOT = Path(os.environ.get("ANXETY_ROOT", "/content/ANXETY"))
 HOME_DIR = Path(os.environ.get("HOME_DIR", "/content"))
 NGROK_TOKEN_ENV = os.environ.get("NGROK_TOKEN", "")
 
-# We must ensure modules can be imported
 if str(ANXETY_ROOT) not in sys.path:
     sys.path.insert(0, str(ANXETY_ROOT))
 
@@ -25,12 +21,10 @@ try:
     from modules import json_utils as js
     from modules import webui_utils
 except ImportError as e:
-    # This is a fallback print, as logging might not be configured yet.
     print(f"❌ CRITICAL [Orchestrator]: Failed to import core modules. Error: {e}")
     sys.exit(1)
 
-
-# --- Configuration (Copied from Notebook) ---
+# --- Configuration ---
 webui_selection_args = {
     'A1111': "--xformers --no-half-vae --skip-torch-cuda-test --reinstall-xformers",
     'Forge': "--disable-xformers --opt-sdp-attention --cuda-stream --pin-shared-memory --skip-torch-cuda-test",
@@ -40,11 +34,9 @@ webui_selection_args = {
     'SD-UX': "--xformers --no-half-vae --skip-torch-cuda-test --reinstall-xformers"
 }
 
-
 # --- Core Logic Functions ---
 
 def _serialize_settings_to_json(webui_choice, is_sdxl, selected_models, selected_vaes, selected_loras, selected_cnets, launch_args, ngrok_token_val, detailed_download):
-    """Saves all user selections from the UI into settings.json."""
     final_launch_args = launch_args
     default_args_for_ui = webui_selection_args.get(webui_choice, "")
 
@@ -55,39 +47,29 @@ def _serialize_settings_to_json(webui_choice, is_sdxl, selected_models, selected
         user_flags = final_launch_args.split()
         for flag in default_flags:
             if flag not in user_flags:
-                if flag == '--disable-xformers' and '--xformers' in user_flags:
-                    continue
-                if flag == '--xformers' and '--disable-xformers' in user_flags:
-                    continue
+                if flag == '--disable-xformers' and '--xformers' in user_flags: continue
+                if flag == '--xformers' and '--disable-xformers' in user_flags: continue
                 final_launch_args += f" {flag}"
 
     final_launch_args = ' '.join(list(dict.fromkeys(final_launch_args.split())))
 
     settings_data = {
         'WIDGETS': {
-            'change_webui': webui_choice,
-            'sdxl_toggle': is_sdxl,
-            'model_list': selected_models or [],
-            'vae_list': selected_vaes or [],
-            'lora_list': selected_loras or [],
-            'controlnet_list': selected_cnets or [],
+            'change_webui': webui_choice, 'sdxl_toggle': is_sdxl,
+            'model_list': selected_models or [], 'vae_list': selected_vaes or [],
+            'lora_list': selected_loras or [], 'controlnet_list': selected_cnets or [],
             'commandline_arguments': final_launch_args,
             'ngrok_token': ngrok_token_val or NGROK_TOKEN_ENV,
             'detailed_download': detailed_download
         },
-        'ENVIRONMENT': {
-            'home_path': str(HOME_DIR)
-        }
+        'ENVIRONMENT': {'home_path': str(HOME_DIR)}
     }
     settings_path = ANXETY_ROOT / 'settings.json'
     js.save(str(settings_path), 'WIDGETS', settings_data['WIDGETS'])
     js.save(str(settings_path), 'ENVIRONMENT', settings_data['ENVIRONMENT'])
-
-    # The original bug is now fixed here, in an updatable .py file.
     webui_utils.update_current_webui(webui_choice)
 
 def format_log_line(line):
-    """Formats a raw log line into styled HTML for the Gradio UI."""
     clean_line = line.strip()
     if not clean_line: return None, False
 
@@ -95,12 +77,12 @@ def format_log_line(line):
         log_entry = json.loads(clean_line)
         level = log_entry.get('level', 'info')
         message = html.escape(log_entry.get('message', ''))
-
+        
         if level == 'progress':
             raw_data = html.escape(log_entry.get('data', {}).get('raw_line', ''))
             percent = log_entry.get('data', {}).get('percentage', 0)
-            message = f"🔄 {message} ({percent}%) {raw_data}"
-            return f'<span class="log-line log-download progress-line">{message}</span>', True
+            formatted_message = f"🔄 {message} ({percent}%) {raw_data}"
+            return f'<span class="log-line log-download progress-line">{formatted_message}</span>', True
 
         return f'<span class="log-line log-{level}">{message}</span>', False
 
@@ -113,12 +95,7 @@ def format_log_line(line):
         else:
             return f'<span class="log-line">{escaped_line}</span>', False
 
-
 def save_and_launch_generator(webui_choice, is_sdxl, selected_models, selected_vaes, selected_loras, selected_cnets, launch_args, ngrok_token_val, detailed_download):
-    """
-    This is the main generator function called by the Gradio UI.
-    It saves settings and then yields live output from the backend scripts.
-    """
     _serialize_settings_to_json(webui_choice, is_sdxl, selected_models, selected_vaes, selected_loras, selected_cnets, launch_args, ngrok_token_val, detailed_download)
     log_lines_list = ['<span class="log-line log-success">✅ Settings saved. Orchestrator starting backend setup...</span>']
     yield "".join(log_lines_list)
@@ -164,7 +141,6 @@ def save_and_launch_generator(webui_choice, is_sdxl, selected_models, selected_v
             yield "".join(log_lines_list)
             break
 
-    # This message only shows if the loop completes without breaking
     if 'process' in locals() and process.returncode == 0:
         success_message = '<span class="log-line log-success">--- ✅ Process Complete or Terminated Successfully ---</span>'
         log_lines_list.append(success_message)
