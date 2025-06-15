@@ -1,158 +1,154 @@
-# /content/ANXETY/scripts/launch.py (vRobust - Correct Log Scope)
+# /content/ANXETY/scripts/launch.py
 
 import os
 import sys
 from pathlib import Path
-import time
-import re
-import shlex
-import json
 import subprocess
-import importlib
+import json
+import shlex
 
-# --- Global Logging Function ---
-def log(level, message, data=None):
-    print(json.dumps({"type": "log", "level": level, "message": message, "data": data or {}}), flush=True)
-
-# --- Self-Contained Path Setup ---
+# Import core modules (Assuming ANXETY_ROOT is in sys.path)
 try:
-    ANXETY_ROOT_BACKEND = Path(__file__).resolve().parents[1]
-except NameError:
-    ANXETY_ROOT_BACKEND = Path('/content/ANXETY')
-
-if str(ANXETY_ROOT_BACKEND) not in sys.path:
-    sys.path.insert(0, str(ANXETY_ROOT_BACKEND))
-# --- End Self-Contained Path Setup ---
-
-# --- CRITICAL: Force Module Reload Block ---
-try:
-    import modules.json_utils as json_utils_module
-    importlib.reload(json_utils_module)
-    js = json_utils_module
-    log('debug', "Successfully reloaded json_utils module in launch.py.")
+    from modules import json_utils as js
+    from modules import logging_utils as m
+    from modules.webui_utils import get_webui_launch_command, get_webui_files
 except ImportError as e:
-    log('error', f"Initial import of json_utils failed in launch.py: {e}")
-    import modules.json_utils as js
-# --- End Reload Block ---
+    print(f"❌ CRITICAL: Failed to import core modules. Ensure /content/ANXETY is in sys.path. Error: {e}")
+    sys.exit(1)
 
-SETTINGS_PATH = ANXETY_ROOT_BACKEND / 'settings.json'
-LOG_DIR = ANXETY_ROOT_BACKEND / "logs"
-LOG_DIR.mkdir(exist_ok=True)
+# --- 1. Configuration and Path Setup ---
+# Use environment variables if set, otherwise default to Colab paths
+HOME_DIR = Path(os.environ.get("HOME_DIR", "/content"))
+ANXETY_ROOT = Path(os.environ.get("ANXETY_ROOT", "/content/ANXETY"))
+SETTINGS_PATH = ANXETY_ROOT / "settings.json"
+VENV_DIR = HOME_DIR / "venv"
+VENV_PYTHON = VENV_DIR / "bin" / "python"
 
+# Configure logging
+m.configure_logging(ANXETY_ROOT / "logs" / "launch.log")
+
+# --- 2. Load Settings ---
+m.log("info", "--- 🚀 Stage L1: Loading Launch Configuration ---")
 try:
-    settings_blob = js.read(SETTINGS_PATH)
-    webui_settings = settings_blob.get('WEBUI', {})
-    widget_settings = settings_blob.get('WIDGETS', {})
-    env_settings = settings_blob.get('ENVIRONMENT', {})
+    settings = js.read(str(SETTINGS_PATH))
+    WIDGETS = settings.get('WIDGETS', {})
+    WEBUI_NAME = WIDGETS.get('change_webui', 'Unknown')
+    CMD_ARGS = WIDGETS.get('commandline_arguments', '')
+    NGROK_TOKEN = WIDGETS.get('ngrok_token', '')
+
+    if WEBUI_NAME == 'Unknown':
+        m.log("error", "FATAL: WebUI name not found in settings.json. Cannot proceed.")
+        sys.exit(1)
+
+    m.log("info", f"Target WebUI: {WEBUI_NAME}")
+    m.log("info", f"Base directory: {HOME_DIR}")
+    m.log("debug", f"Loaded arguments: {CMD_ARGS}")
+
 except Exception as e:
-    log('error', f"Fatal error loading settings in launch.py: {e}"); sys.exit(1)
+    m.log("error", f"FATAL: Failed to read or parse {SETTINGS_PATH}. Error: {e}")
+    sys.exit(1)
 
-COLAB_CONTENT_PATH = Path(env_settings.get('home_path', '/content'))
-VENV_PYTHON_EXECUTABLE = COLAB_CONTENT_PATH / "venv" / "bin" / "python3"
+# --- 3. Validate and Determine WebUI Working Directory ---
+# This is the core fix: Implement fallback directory logic
+m.log("info", "--- 🚀 Stage L2: Determining WebUI Working Directory ---")
 
-UI = widget_settings.get('change_webui', 'Forge')
-WEBUI_PATH = COLAB_CONTENT_PATH / UI
-commandline_arguments = widget_settings.get('commandline_arguments', '')
-ngrok_token = widget_settings.get('ngrok_token')
+# Define potential locations and required launch files
+EXPECTED_WEBUI_DIR = HOME_DIR / WEBUI_NAME  # e.g., /content/ReForge
+FALLBACK_WEBUI_DIR = HOME_DIR             # e.g., /content
+REQUIRED_FILES = get_webui_files(WEBUI_NAME) # Gets specific files like launch.py, webui.sh, or main.py
 
-def get_launch_command():
-    base_args = commandline_arguments
-    
-    python_exe = str(VENV_PYTHON_EXECUTABLE)
-    if not VENV_PYTHON_EXECUTABLE.exists():
-        log('warning', f"VENV Python not found at {VENV_PYTHON_EXECUTABLE}, falling back to system python3.")
-        python_exe = "python3"
+WORKING_DIR = None
+m.log("info", f"Checking for required files ({', '.join(REQUIRED_FILES)}) in expected location: {EXPECTED_WEBUI_DIR}")
 
-    webui_script_to_run = "main.py" if UI == 'ComfyUI' else "launch.py"
-    
-    command_prefix = ["env", "PYTHONNOUSERSITE=1", python_exe, webui_script_to_run]
-    command = command_prefix
+# Check 1: The "Happy Path" - Zip file contained a root folder
+if EXPECTED_WEBUI_DIR.is_dir():
+    if any((EXPECTED_WEBUI_DIR / file).exists() for file in REQUIRED_FILES):
+        WORKING_DIR = EXPECTED_WEBUI_DIR
+        m.log("success", f"✅ Found WebUI files in the expected directory: {WORKING_DIR}")
 
-    if base_args: command.extend(shlex.split(base_args))
-    
-    if UI != 'ComfyUI':
-        shared_models_dir = COLAB_CONTENT_PATH / 'sd_models_shared' / 'models'
-        path_args = {
-            "--ckpt-dir": str(shared_models_dir/'Stable-diffusion'),
-            "--vae-dir": str(shared_models_dir/'VAE'),
-            "--lora-dir": str(shared_models_dir/'Lora'),
-            "--embeddings-dir": str(shared_models_dir/'embeddings'),
-            "--controlnet-dir": str(shared_models_dir/'ControlNet')
-        }
-        for arg, path_val in path_args.items():
-            command.extend([arg, path_val])
-    
-    return command
+# Check 2: The "Fallback Path" - Zip file extracted directly to root
+if WORKING_DIR is None:
+    m.log("warning", f"Expected directory {EXPECTED_WEBUI_DIR} not found or missing launch files. Checking fallback location: {FALLBACK_WEBUI_DIR}")
+    if any((FALLBACK_WEBUI_DIR / file).exists() for file in REQUIRED_FILES):
+        WORKING_DIR = FALLBACK_WEBUI_DIR
+        m.log("success", f"✅ Found WebUI files in the fallback directory: {WORKING_DIR}")
+        m.log("info", "Note: This WebUI archive was extracted directly to the root. Adjusting working directory.")
 
-if __name__ == '__main__':
-    log('info', 'Please Wait, Launching WebUI and Tunnels...')
-    
-    # --- Resilient WebUI Path Handling ---
-    # The "happy path" - the archive was well-structured with a top-level folder.
-    if WEBUI_PATH.exists() and WEBUI_PATH.is_dir():
-        log('info', f"Standard WebUI directory found at: {WEBUI_PATH}")
-        os.chdir(WEBUI_PATH)
-    # The "fallback path" - the archive dumped its contents directly into /content.
-    elif (COLAB_CONTENT_PATH / 'launch.py').exists():
-        log('warning', f"Standard WebUI directory not found. Falling back to parent directory: {COLAB_CONTENT_PATH}")
-        WEBUI_PATH = COLAB_CONTENT_PATH
-        os.chdir(WEBUI_PATH)
-    # If neither path is valid, then it's a true failure.
-    else:
-        log('error', f"FATAL ERROR: Could not find a valid WebUI launch script at the expected path ({WEBUI_PATH}) or in the fallback path ({(COLAB_CONTENT_PATH / 'launch.py')}). Download or extraction likely failed."); sys.exit(1)
+# Check 3: Failure
+if WORKING_DIR is None:
+    m.log("error", f"FATAL ERROR: Could not locate necessary launch files ({', '.join(REQUIRED_FILES)}) in either:")
+    m.log("error", f"  - {EXPECTED_WEBUI_DIR}")
+    m.log("error", f"  - {FALLBACK_WEBUI_DIR}")
+    m.log("error", "The WebUI installation likely failed or the archive structure is unknown. Cannot launch.")
+    sys.exit(1)
 
-    tunnel_port = 8188 if UI == 'ComfyUI' else 7860
-    tunnels_to_launch = [
-        {'name':'Gradio','cmd':f"{sys.executable} {ANXETY_ROOT_BACKEND/'__configs__'/'gradio-tunneling.py'} {tunnel_port}",'log_file':LOG_DIR/"gradio.log",'pattern':re.compile(r'https://[\\\\w-]+\\\\.gradio\\\\.live')},
-        {'name':'Cloudflare','cmd':f"cloudflared tunnel --url http://localhost:{tunnel_port}",'log_file':LOG_DIR/"cloudflare.log",'pattern':re.compile(r'https://[a-zA-Z0-9.-]+\\\\.trycloudflare\\\\.com')}
-    ]
-    if ngrok_token:
-        tunnels_to_launch.append({'name':'Ngrok','cmd':f"ngrok http {tunnel_port} --authtoken={ngrok_token} --log=stdout",'log_file':LOG_DIR/"ngrok.log",'pattern':re.compile(r'https://[a-zA-Z0-9.-]+\\\\.ngrok-free\\\\.app')})
-    
-    for tunnel in tunnels_to_launch:
-        log('info', f"🚀 Launching {tunnel['name']} tunnel...")
-        with open(tunnel['log_file'], 'wb') as log_file_handle:
-             subprocess.Popen(shlex.split(tunnel['cmd']), stdout=log_file_handle, stderr=subprocess.STDOUT)
+# --- 4. Validate VENV ---
+m.log("info", "--- 🚀 Stage L3: Validating Virtual Environment ---")
+if not VENV_PYTHON.exists():
+    m.log("error", f"FATAL ERROR: Python executable not found at {VENV_PYTHON}. VENV installation failed or is corrupted.")
+    sys.exit(1)
+m.log("success", f"✅ VENV Python validated: {VENV_PYTHON}")
 
-    LAUNCHER_COMMAND_LIST = get_launch_command()
-    log('info', f"🚀 Launching {UI} with command: {' '.join(LAUNCHER_COMMAND_LIST)}")
-    
-    webui_output_log_file = LOG_DIR / f"{UI}_launch_output.log"
-    with open(webui_output_log_file, 'wb') as webui_log_handle:
-        subprocess.Popen(LAUNCHER_COMMAND_LIST, stdout=webui_log_handle, stderr=subprocess.STDOUT, cwd=WEBUI_Path) 
-    
-    log('header', "--- Monitoring logs for public URLs... ---")
-    found_urls = {}
-    start_time = time.time()
-    monitoring_duration = 180 
-    all_urls_found_flag = False
+# --- 5. Prepare Launch Environment ---
+m.log("info", "--- 🚀 Stage L4: Preparing Launch Environment ---")
 
-    while time.time() - start_time < monitoring_duration:
-        all_urls_found_flag = True 
-        for tunnel in tunnels_to_launch:
-            if tunnel['name'] not in found_urls:
-                all_urls_found_flag = False 
-                try:
-                    if tunnel['log_file'].exists() and tunnel['log_file'].stat().st_size > 0:
-                        with open(tunnel['log_file'], 'r', encoding='utf-8', errors='replace') as f:
-                            for line_content in f: 
-                                if match := tunnel['pattern'].search(line_content):
-                                    url = match.group(0)
-                                    log('url', f"🔗 {tunnel['name']}: {url}")
-                                    found_urls[tunnel['name']] = url
-                                    break 
-                except FileNotFoundError: pass
-                except Exception as e: log('error', f"Error reading log for {tunnel['name']}: {e}")
-        
-        if all_urls_found_flag and len(found_urls) == len(tunnels_to_launch) and len(tunnels_to_launch) > 0:
-            log('success', "✅ All tunnel URLs detected.")
-            break 
-        elif len(tunnels_to_launch) == 0:
-             log('info', "No tunnels configured to launch.")
-             break
-        time.sleep(5) 
-    
-    if not found_urls and len(tunnels_to_launch) > 0:
-        log('error', "❌ No public URLs were generated within the time limit.")
-    elif not all_urls_found_flag and len(tunnelels_to_launch) > 0:
-        log('warning', "⚠️ Not all tunnel URLs were detected.")
+# Environment variables for the WebUI process
+webui_env = os.environ.copy()
+webui_env["PYTHONPATH"] = f"{WORKING_DIR}:{webui_env.get('PYTHONPATH', '')}"
+webui_env["PATH"] = f"{VENV_DIR / 'bin'}:{webui_env['PATH']}"
+webui_env["HF_HOME"] = str(HOME_DIR / "cache" / "huggingface")
+webui_env["TF_CPP_MIN_LOG_LEVEL"] = "3" # Reduce Tensorflow noise
+
+# Add Ngrok if provided
+if NGROK_TOKEN:
+    m.log("info", "Ngrok token detected. Adding --ngrok flag.")
+    CMD_ARGS = f"{CMD_ARGS} --ngrok {NGROK_TOKEN}"
+else:
+    m.log("info", "No Ngrok token. Using --share for Gradio link.")
+    if "--share" not in CMD_ARGS:
+        CMD_ARGS = f"{CMD_ARGS} --share"
+
+# Construct the final launch command
+base_command = get_webui_launch_command(WEBUI_NAME)
+launch_command = f"{VENV_PYTHON} {base_command} {CMD_ARGS}"
+
+m.log("debug", f"Final launch command: {launch_command}")
+m.log("debug", f"Working directory for launch: {WORKING_DIR}")
+
+# --- 6. Launch WebUI ---
+m.log("info", "--- 🚀 Stage L5: Launching WebUI ---")
+try:
+    m.log("info", f"Changing current directory to {WORKING_DIR}")
+    # Critical: Change to the determined working directory before launching
+    os.chdir(WORKING_DIR)
+
+    m.log("success", f"=== {WEBUI_NAME} LAUNCHING NOW ===")
+    # Use shlex.split for safer command parsing if not using shell=True
+    # However, many WebUIs use complex shell commands, so shell=True is often necessary but less safe.
+    # We'll use Popen to stream output non-blockingly.
+    process = subprocess.Popen(
+        shlex.split(launch_command),
+        env=webui_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding='utf-8',
+        bufsize=1
+    )
+
+    # Stream output
+    for line in iter(process.stdout.readline, ''):
+        print(line.strip()) # Print raw output for Gradio streamer
+
+    process.wait()
+    if process.returncode != 0:
+        m.log("error", f"WebUI process exited with error code {process.returncode}")
+
+except FileNotFoundError:
+    m.log("error", f"FATAL: The launch command executable was not found. Command: {launch_command}")
+except subprocess.CalledProcessError as e:
+    m.log("error", f"FATAL: WebUI launch failed with exit code {e.returncode}. Check logs above for errors.")
+except Exception as e:
+    m.log("error", f"FATAL: An unexpected error occurred during WebUI launch: {e}")
+
+m.log("info", "--- 🚀 Launch Script Finished ---")
