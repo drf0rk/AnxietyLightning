@@ -40,7 +40,7 @@ except Exception as e:
     sys.exit(1)
 
 # --- UI Styling ---
-MODERN_LOG_CSS = \"\"\"<style>
+MODERN_LOG_CSS = """<style>
     #log_output_html{background-color:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;font-family:'Monaco','Consolas','Menlo',monospace;color:#c9d1d9;height:400px;overflow-y:auto}
     #log_output_html .log-line{display:block;animation:fadeIn .5s ease-in-out; white-space: pre-wrap; word-break: break-all;}
     #log_output_html .log-header{color:#58a6ff;font-weight:700;margin-top:15px;margin-bottom:5px;text-shadow:0 0 5px rgba(88,166,255,.3)}
@@ -50,7 +50,7 @@ MODERN_LOG_CSS = \"\"\"<style>
     #log_output_html .log-url{color:#9e87ff;font-weight:700}
     #log_output_html .log-download{color:#8b949e;font-size:.85em}
     @keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
-</style>\"\"\"
+</style>"""
 
 # --- Gradio UI Definition ---
 with gr.Blocks(theme=gr.themes.Soft(), css=MODERN_LOG_CSS) as demo:
